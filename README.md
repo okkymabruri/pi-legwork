@@ -51,6 +51,7 @@ Read [the threat model](#the-guard-is-not-a-sandbox) before relying on it.
 ```bash
 pi-delegate "task"                       # survey, grep sweep, inventory
 pi-delegate -o /tmp/out.md "task"        # durable output path
+pi-delegate -p readonly "task"           # no bash: cannot mutate anything
 pi-delegate -p research "look up X"      # web tools, no bash/write
 pi-delegate -2 "<the whole problem>"     # independent second opinion
 pi-delegate -s audit-1 "follow-up"       # resumable session
@@ -118,6 +119,28 @@ on at least one task class, with equal answers. One task class cleared it.
 
 **Read it as one task class, n=2 — not a general claim.**
 
+## Profiles, and what "read-only" actually means
+
+| Profile | Tools | Can mutate? | Floor |
+|---|---|---|---|
+| `readonly` | `read,grep,find,ls` — no bash, no network | **No — enforced** | ~3.1k |
+| `local` (default) | `+ bash`, no network | **Yes** | ~3.1k |
+| `research` | web tools + `read`, no bash/write | No | ~4.7k |
+| `full` | everything — opt in deliberately | Yes | ~4.7k |
+
+**Read this before believing the phrase "read-only" anywhere else in this repo.**
+The default profile carries `bash`. A delegate under `local` that is asked to
+overwrite a file will do it — verified, not theorised. Read-only under `local` is
+a property of *which tasks you send*, not a boundary the tool enforces.
+
+Use `-p readonly` when you want the guarantee. It is enough for surveys, greps,
+and file reads, and it costs nothing extra.
+
+`research` and `local` are kept apart for a different reason: an agent holding
+both network egress and bash can be aimed at something by an injected page, since
+fetched web content is untrusted input. Splitting removes the combination rather
+than policing it.
+
 ## The guard is not a sandbox
 
 `extensions/damage-control.ts` denies reads of credential paths and blocks
@@ -152,7 +175,7 @@ costs the observability that tells you which model produced which claim.
 
 Most published integrations in this space are MCP-based and write-capable, built
 for parallelism: results flow back through the protocol. This is the other kind
-— a caller-side wrapper, read-only, built for context economics, where only a
+— a caller-side wrapper built for context economics, where only a
 pointer flows back.
 
 Note the direction, because several unrelated projects share the command's name:
