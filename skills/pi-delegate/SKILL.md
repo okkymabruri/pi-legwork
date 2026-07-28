@@ -1,6 +1,6 @@
 ---
 name: pi-delegate
-description: Run high-churn read-only work on a cheaper agent and keep only the answer. Use when a task needs many file reads or greps but returns a short answer — codebase surveys, "which files reference X", inventories and gap-finding, git-history archaeology, log and data scans, web research with sources, screening or extracting from PDFs and decks. Also use for an independent second opinion on a hard decision.
+description: Run high-churn exploration on a cheaper agent and keep only the answer. Use when a task needs many file reads or greps but returns a short answer — codebase surveys, "which files reference X", inventories and gap-finding, git-history archaeology, log and data scans, web research with sources, screening or extracting from PDFs and decks. Also use for an independent second opinion on a hard decision.
 ---
 
 # Delegate the legwork
@@ -15,9 +15,19 @@ pi-delegate "which files under src/ reference the retry helper, and what for"
 
 Run it with `run_in_background: true` — a call takes ~25–60s.
 
+## Gate 0 — is this allowed to leave?
+
+Before the economics: the delegate is a **different provider**, so the prompt and
+whatever it reads cross that boundary. Client data, unpublished work, anything
+under NDA: do not delegate, whatever the ratio.
+
+Also note the authority: the default `local` profile includes `bash`, so a
+delegate *can* write and delete. Pass `-p readonly` (no bash, no network) when
+the task only needs reading — that is the enforced version.
+
 ## Two gates
 
-Delegate only when **both** pass.
+Once gate 0 is clear, delegate only when **both** pass.
 
 1. **Churn ≫ output** — many reads, short answer. The answer returns either way,
    so only the churn is saved.
@@ -94,6 +104,7 @@ a question about both sides.
 | Flag | Use |
 |---|---|
 | `-o PATH` | durable output path (use whenever fanning out) |
+| `-p readonly` | no bash: cannot mutate anything |
 | `-p research` | web tools, no bash/write |
 | `-nc` | skip the cwd's `AGENTS.md`/`CLAUDE.md` |
 | `-s ID` | resumable session for follow-ups |

@@ -90,11 +90,19 @@ SESSION_ID=""
 # research run has no bash/edit for an injected page to aim at. The token floor
 # follows the same lever, since every registered tool's schema ships per call.
 #
-#   local     read/grep/find/ls/bash, NO network   ~3.1k floor   (default)
+#   readonly  read/grep/find/ls -- no bash, no network. Cannot mutate.
+#   local     + bash. CAN write; read-only here is intent, not enforcement.
 #   research  network only, NO bash/edit/write     ~4.7k floor
 #   full      everything -- both halves at once; opt in deliberately
 profile_tools() {
   case "$1" in
+    # No bash, so no subprocess and nothing that mutates the tree. This is the
+    # only profile where "read-only" is ENFORCED rather than merely intended.
+    #
+    # It exists because the claim was wrong for a while: `local` was documented
+    # as read-only, but it carries bash, and a delegate asked to overwrite a
+    # file did exactly that. Task selection is not a boundary.
+    readonly) echo "read,grep,find,ls" ;;
     local)    echo "read,grep,find,ls,bash" ;;
     # `mcp` is a single PROXY tool -- the adapter's design ("one proxy tool
     # (~200 tokens) instead of hundreds"). Enumerating individual MCP tool
@@ -109,7 +117,7 @@ profile_tools() {
     # hostConfigDiscovery off.
     research) echo "web_search,fetch_content,get_search_content,read,mcp" ;;
     full)     echo "" ;;
-    *) echo "unknown profile: $1 (want local|research|full)" >&2; exit 1 ;;
+    *) echo "unknown profile: $1 (want readonly|local|research|full)" >&2; exit 1 ;;
   esac
 }
 

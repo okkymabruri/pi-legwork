@@ -42,10 +42,12 @@ flowchart TD
     M -- "no" --> MX["error → --models / --doctor"]
     M -- "yes" --> PR{"profile"}
 
-    PR -- "local" --> L["read, grep, find, ls, bash<br/><b>no network</b>"]
+    PR -- "readonly" --> RO["read, grep, find, ls<br/><b>cannot mutate</b>"]
+    PR -- "local" --> L["+ bash<br/><b>CAN write</b>"]
     PR -- "research" --> RS["web tools, read<br/><b>no bash / write</b>"]
     PR -- "full" --> FU["everything<br/><i>opt in deliberately</i>"]
 
+    RO --> G[
     L --> G["guard extension<br/>credential paths · destructive bash"]
     RS --> G
     FU --> G
@@ -57,8 +59,14 @@ flowchart TD
 
 ## Why the profiles are split
 
-`research` and `local` are kept apart because the combination is the danger, not
-either half:
+**`readonly` versus `local` is the one that surprises people.** `local` carries
+`bash`, so a delegate under it can write, delete and spawn subprocesses — asked
+to overwrite a file, it will. Read-only under `local` is a property of the tasks
+you send, not a boundary. `readonly` drops bash and is the enforced version;
+surveys, greps and file reads do not need bash anyway.
+
+`research` and `local` are kept apart for a different reason — the combination is
+the danger, not either half:
 
 - an agent with **network egress** can send anything it read out via a URL
 - an agent with **bash** can be aimed at a path or a command
@@ -89,7 +97,7 @@ boundaries.
 
 So the dotted arrow is real: anything reaching the filesystem without passing
 through a hooked tool call is outside the guard by construction. That is
-proportionate for read-only surveys, where the realistic failure is a credential
+proportionate for surveys run under `readonly`, where the realistic failure is a credential
 path being read and pattern-matching catches it. It does not survive being
 load-bearing.
 
@@ -116,5 +124,5 @@ Up to 6 concurrent, measured safe. Two rules make it work:
   the children die when the parent is reaped, leaving `rc=0` and an empty answer
   that reads exactly like the model finding nothing.
 
-Six is safe **because the delegates only read**. It is not a budget that
+Six is safe **because the delegates are only reading** — under `readonly` that is enforced, under `local` it is a property of the tasks sent. It is not a budget that
 transfers to writes.

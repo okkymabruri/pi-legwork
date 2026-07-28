@@ -76,8 +76,29 @@ quote". Same churn, same short answer — but now one claim can be spot-checked 
 the cost of one page. The output carries its own evidence.
 
 **Gate 2 is why the document rule demands locators, why research delegations
-must return a source URL per claim, and why every "no" row in the practice guide
-is a "no".**
+must return a source URL per claim, and why most "no" rows in the practice guide
+are a "no".**
+
+### Gate 0 — may this leave, and what can the delegate touch?
+
+The two gates above are about *economics and verifiability*. They are not
+sufficient, and treating them as the whole test was a mistake worth naming.
+
+A task can pass both and still be wrong to delegate:
+
+- **Confidentiality.** The delegate is a different provider. Whatever the prompt
+  carries — and whatever the delegate reads — crosses that boundary. Client data,
+  unpublished work, and anything under NDA fail here regardless of how good the
+  churn ratio is.
+- **Untrusted input.** Repository content and fetched pages can carry prompt
+  injection. The delegate acts on what it reads.
+- **Authority.** The default `local` profile includes `bash`. A delegate can
+  write, delete, and spawn subprocesses. "Read-only" describes the tasks people
+  send, not a boundary the tool enforces — use `-p readonly` for the enforced
+  version.
+
+Gate 0 comes first because it is a veto, not a trade-off. The other two decide
+whether delegation *pays*; this one decides whether it is *allowed*.
 
 ## What this buys, and what it costs
 

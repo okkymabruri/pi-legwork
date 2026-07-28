@@ -6,14 +6,19 @@ instructions, so keep it short: it is resident context on every request.
 <!-- pi-legwork:start -->
 ## Delegating legwork
 
-`pi-delegate` runs high-churn read-only work on a cheaper agent and returns a
+`pi-delegate` runs high-churn exploration on a cheaper agent and returns a
 short head plus a file path, so the intermediate reads never enter this context.
 
 ```bash
 pi-delegate -o /tmp/out.md "which files under src/ reference the retry helper, and what for"
 ```
 
-Delegate when **both** hold:
+First: the delegate is a **different provider**, so anything in the prompt or
+read by it crosses that boundary — never delegate confidential work. The default
+profile includes `bash` and *can* write; use `-p readonly` when the task only
+needs reading.
+
+Then delegate when **both** hold:
 
 1. **Churn ≫ output** — many reads or greps, short answer.
 2. **The output carries its own evidence** — checkable without redoing the work
