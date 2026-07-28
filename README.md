@@ -1,20 +1,19 @@
 # pi-legwork
 
-`pi-delegate` moves bulky read-only research off your coding agent and onto a
-cheaper one. You get the result back, not the search trail.
+Use **Claude Code** or **Codex** to delegate read-only research to a cheaper
+**[pi](https://github.com/badlogic/pi-mono) agent**.
 
 A question like *"which files reference the retry helper, and what for"* takes
 forty file reads to answer in ten rows. The answer is worth keeping. The
-thirty-nine reads are not, and they sit in your agent's context for the rest of
+thirty-nine reads are not, and they sit in Claude Code's context for the rest of
 the session.
 
 ```bash
 pi-delegate "which files under src/ reference the retry helper, and what for"
 ```
 
-The work runs in a separate session using the
-[`pi` agent CLI](https://github.com/badlogic/pi-mono), which writes its full
-answer to a file. What returns to your agent is a short preview and the path.
+The pi agent does the work in its own session and writes the full answer to a
+file. What comes back to Claude Code is a short preview and the file path.
 
 **Measured on one comparison:** delegating a grep-heavy task used 0.23× as many
 caller tokens, and both runs produced identical answers. One task class, two runs
@@ -28,7 +27,9 @@ See [the measurement](#the-measurement).
 
 ## Install
 
-Requires [pi](https://github.com/badlogic/pi-mono) on `PATH`, plus `jq`.
+You need [pi](https://github.com/badlogic/pi-mono) on `PATH` — it is a separate,
+open-source agent CLI, and it is what actually runs the delegated work. Plus
+`jq`.
 
 ```bash
 git clone https://github.com/okkymabruri/pi-legwork && cd pi-legwork
@@ -50,6 +51,28 @@ cp damage-control-rules.json ~/.pi/
 ```
 
 Read [the threat model](#the-guard-is-not-a-sandbox) before relying on it.
+
+### Wire it into your agent
+
+The command works from any shell, but your agent has to know *when* to reach for
+it. One file each:
+
+**Claude Code** — install as a plugin, which brings the skill and a setup
+command:
+
+```
+/plugin marketplace add okkymabruri/pi-legwork
+/plugin install pi-legwork@pi-legwork
+/setup-pi-legwork
+```
+
+**Codex** — paste the block from
+[`integrations/codex/AGENTS.md`](integrations/codex/AGENTS.md) into your
+`AGENTS.md`. Given only that block, Codex chose to delegate a survey task on its
+own.
+
+**Anything else** that can run a shell command — see
+[`integrations/README.md`](integrations/README.md).
 
 ## Use
 
