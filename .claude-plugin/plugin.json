@@ -1,0 +1,12 @@
+{
+  "name": "pi-legwork",
+  "displayName": "pi-legwork",
+  "version": "0.1.0",
+  "description": "Delegate high-churn read-only work to a cheaper agent and keep only the answer. Measured 0.23x caller tokens.",
+  "author": {
+    "name": "Okky Mabruri"
+  },
+  "repository": "https://github.com/okkymabruri/pi-legwork",
+  "license": "MIT",
+  "keywords": ["delegation", "context", "tokens", "research", "pi"]
+}
