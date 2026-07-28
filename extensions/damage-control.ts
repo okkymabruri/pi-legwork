@@ -1,0 +1,320 @@
+// Damage-control safety hook for Pi 0.82.x.
+//
+// Ported from disler/pi-vs-claude-code (MIT). Deviations from upstream are
+// marked `PORT:` and each has a reason -- see ../README.md.
+//
+// Purpose here: make this repo's credential-file rule code-enforced instead of
+// discipline-enforced. AGENTS.md says "never read files containing
+// credentials"; that rule was violated 4x in one session. This blocks it.
+
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import * as os from "node:os";
+
+// PORT: upstream parses YAML via the `yaml` npm package. Pi does not bundle it,
+// so a missing dep would throw at load and leave the session UNPROTECTED with
+// no signal. JSON needs no dep and cannot fail that way. A guard that silently
+// doesn't load is worse than no guard.
+const RULES_BASENAME = "damage-control-rules.json";
+
+interface Rule {
+	pattern: string;
+	reason: string;
+	ask?: boolean;
+}
+
+interface Rules {
+	bashToolPatterns: Rule[];
+	zeroAccessPaths: string[];
+	readOnlyPaths: string[];
+	noDeletePaths: string[];
+	// PORT: upstream always calls ctx.abort() on a block, killing the whole run.
+	// That makes any DELEGATED survey over a config directory impossible: the
+	// first protected file ends the session and the caller gets nothing back
+	// after minutes of work. Denying the access is the security requirement;
+	// killing the turn is not. Default false = deny and let the agent continue
+	// with actionable feedback (upstream ships this as a separate
+	// "damage-control-continue" variant). Set true for interactive sessions
+	// where stopping to tell the human is the desired behaviour.
+	abortOnBlock: boolean;
+}
+
+const EMPTY: Rules = {
+	bashToolPatterns: [], zeroAccessPaths: [], readOnlyPaths: [], noDeletePaths: [],
+	abortOnBlock: false,
+};
+
+const ANTI_WORKAROUND_ABORT =
+	"\n\nDO NOT attempt to work around this restriction. DO NOT retry with " +
+	"alternative commands, paths, or approaches that achieve the same result. " +
+	"Report this block to the user exactly as stated and ask how they would like to proceed.";
+
+// When continuing, the agent still must not route around the denial -- but it
+// SHOULD carry on with the rest of the task and report this path as blocked.
+const ANTI_WORKAROUND_CONTINUE =
+	"\n\nDO NOT retry this path, and DO NOT use an alternative command or tool " +
+	"to reach the same content -- the denial is deliberate. DO continue with the " +
+	"rest of the task, and report this specific path as blocked in your answer.";
+
+export default function (pi: ExtensionAPI) {
+	let rules: Rules = EMPTY;
+	// PORT: fail closed. Upstream continues with empty rules when loading fails,
+	// which silently disables protection. Here a parse failure blocks every tool
+	// call until it's fixed.
+	let loadError: string | null = null;
+
+	function expandTilde(p: string): string {
+		return p.startsWith("~") ? path.join(os.homedir(), p.slice(1)) : p;
+	}
+
+	function resolvePath(p: string, cwd: string): string {
+		return path.resolve(cwd, expandTilde(p));
+	}
+
+	// Substring search that only counts a hit when the next char is not a
+	// path-word char, so `~/Desktop/YT` does not match `~/Desktop/YT_archive`.
+	function commandReferencesPath(command: string, protectedPath: string): boolean {
+		if (!protectedPath) return false;
+		let idx = command.indexOf(protectedPath);
+		while (idx >= 0) {
+			const after = command[idx + protectedPath.length];
+			if (!after || !/[A-Za-z0-9_-]/.test(after)) return true;
+			idx = command.indexOf(protectedPath, idx + 1);
+		}
+		return false;
+	}
+
+	function isPathMatch(targetPath: string, pattern: string, cwd: string): boolean {
+		const resolvedPattern = expandTilde(pattern);
+
+		if (resolvedPattern.endsWith("/")) {
+			const abs = path.isAbsolute(resolvedPattern) ? resolvedPattern : path.resolve(cwd, resolvedPattern);
+			return targetPath.startsWith(abs);
+		}
+
+		const regexPattern = resolvedPattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
+		const regex = new RegExp(`^${regexPattern}$|^${regexPattern}/|/${regexPattern}$|/${regexPattern}/`);
+		const relativePath = path.relative(cwd, targetPath);
+
+		return (
+			regex.test(targetPath) ||
+			regex.test(relativePath) ||
+			targetPath.includes(resolvedPattern) ||
+			relativePath.includes(resolvedPattern)
+		);
+	}
+
+	function ruleCount(r: Rules): number {
+		return r.bashToolPatterns.length + r.zeroAccessPaths.length + r.readOnlyPaths.length + r.noDeletePaths.length;
+	}
+
+	// PORT: guard on ctx.mode, NOT ctx.hasUI.
+	//
+	// rpc.md is explicit: `ctx.hasUI` is TRUE in RPC mode, because dialog
+	// methods are "functional via the extension UI sub-protocol" -- i.e.
+	// ctx.ui.confirm() emits an extension_ui_request on stdout and BLOCKS
+	// until the client writes a matching extension_ui_response to stdin.
+	// A benchmark harness that doesn't implement that sub-protocol hangs
+	// forever. Only "tui" mode has a real human able to answer.
+	const canPrompt = (ctx: any) => ctx.mode === "tui";
+
+	// notify/setStatus are fire-and-forget in RPC (emitted, no response
+	// expected), so they are safe -- but stderr is more useful for a harness.
+	function say(ctx: any, msg: string) {
+		if (canPrompt(ctx)) ctx.ui.notify(msg);
+		else process.stderr.write(`[damage-control] ${msg}\n`);
+	}
+
+	pi.on("session_start", async (_event, ctx) => {
+		const candidates = [
+			path.join(ctx.cwd, ".pi", RULES_BASENAME),
+			path.join(ctx.cwd, "code-assistant", "pi", RULES_BASENAME),
+			path.join(os.homedir(), ".pi", RULES_BASENAME),
+		];
+		const rulesPath = candidates.find((p) => fs.existsSync(p)) ?? null;
+
+		if (!rulesPath) {
+			loadError = `no ${RULES_BASENAME} found (looked in: ${candidates.join(", ")})`;
+			say(ctx, `🛡️ Damage-Control: ${loadError} -- BLOCKING ALL TOOL CALLS`);
+			return;
+		}
+
+		try {
+			const loaded = JSON.parse(fs.readFileSync(rulesPath, "utf8")) as Partial<Rules>;
+			rules = {
+				bashToolPatterns: loaded.bashToolPatterns ?? [],
+				zeroAccessPaths: loaded.zeroAccessPaths ?? [],
+				readOnlyPaths: loaded.readOnlyPaths ?? [],
+				noDeletePaths: loaded.noDeletePaths ?? [],
+				// PI_DC_ABORT=1 forces abort regardless of the rules file. Set by
+				// pi-delegate.sh for research runs: a credential-path block during
+				// a web survey is anomalous and reads as prompt injection, so the
+				// turn should stop rather than be told "continue with the rest".
+				abortOnBlock: process.env.PI_DC_ABORT === "1" ? true : (loaded.abortOnBlock ?? false),
+			};
+			// Compile every regex now so a bad pattern fails at startup, not
+			// mid-run on the one command it was meant to catch.
+			for (const r of rules.bashToolPatterns) new RegExp(r.pattern);
+			loadError = null;
+			say(ctx, `🛡️ Damage-Control: ${ruleCount(rules)} rules from ${rulesPath}`);
+			if (canPrompt(ctx)) ctx.ui.setStatus(`🛡️ Damage-Control: ${ruleCount(rules)} rules`);
+		} catch (err) {
+			rules = EMPTY;
+			loadError = `failed to parse ${rulesPath}: ${err instanceof Error ? err.message : String(err)}`;
+			say(ctx, `🛡️ Damage-Control: ${loadError} -- BLOCKING ALL TOOL CALLS`);
+		}
+	});
+
+	pi.on("tool_call", async (event, ctx) => {
+		if (loadError) {
+			return { block: true, reason: `🛑 BLOCKED: damage-control rules did not load (${loadError}). Fix the rules file before running tools.${ANTI_WORKAROUND_ABORT}` };
+		}
+
+		let violationReason: string | null = null;
+		let shouldAsk = false;
+
+		const inputPaths: string[] = [];
+		if (isToolCallEventType("read", event) || isToolCallEventType("write", event) || isToolCallEventType("edit", event)) {
+			inputPaths.push(event.input.path);
+		} else if (isToolCallEventType("grep", event) || isToolCallEventType("find", event) || isToolCallEventType("ls", event)) {
+			inputPaths.push(event.input.path || ".");
+		}
+
+		if (isToolCallEventType("grep", event) && event.input.glob) {
+			for (const zap of rules.zeroAccessPaths) {
+				if (event.input.glob.includes(zap) || isPathMatch(event.input.glob, zap, ctx.cwd)) {
+					violationReason = `Glob matches zero-access path: ${zap}`;
+					break;
+				}
+			}
+		}
+
+		if (!violationReason) {
+			outer: for (const p of inputPaths) {
+				const resolved = resolvePath(p, ctx.cwd);
+				for (const zap of rules.zeroAccessPaths) {
+					if (isPathMatch(resolved, zap, ctx.cwd)) {
+						violationReason = `Access to zero-access path restricted: ${zap}`;
+						break outer;
+					}
+				}
+			}
+		}
+
+		// PORT: inspect network tools. Upstream predates them and dispatches only
+		// on read/write/edit/grep/find/ls/bash, so anything else fell through to
+		// `block: false`. Registering pi-web-access added three uninspected tools
+		// (`web_search`, `fetch_content`, `get_search_content`) that reach the
+		// network — the one channel by which data can LEAVE the machine.
+		//
+		// zeroAccessPaths guarantees a credential never reaches the model. It says
+		// nothing about egress. A URL is attacker-controllable and can carry
+		// content in its query string, so the whole input is stringified and
+		// checked rather than trusting a `url` field to be the only vector.
+		if (!violationReason) {
+			const NETWORK_TOOLS = ["web_search", "fetch_content", "get_search_content"];
+			if (NETWORK_TOOLS.includes(event.toolName)) {
+				const blob = JSON.stringify(event.input ?? {});
+
+				for (const zap of rules.zeroAccessPaths) {
+					const bare = zap.replace(/^[~*]+/, "").replace(/\*/g, "");
+					if (bare.length > 3 && blob.includes(bare)) {
+						violationReason = `Network tool ${event.toolName} references zero-access path: ${zap}`;
+						break;
+					}
+				}
+				// SSRF / local-file exfil targets. A delegated web survey has no
+				// legitimate reason to fetch the loopback interface, the cloud
+				// metadata endpoint, or a file:// URL.
+				if (!violationReason) {
+					const SSRF = /\b(file:\/\/|localhost|127\.0\.0\.1|0\.0\.0\.0|169\.254\.169\.254|\[::1\]|metadata\.google\.internal)/i;
+					const m = blob.match(SSRF);
+					if (m) violationReason = `Network tool ${event.toolName} targets a local/metadata address: ${m[1]}`;
+				}
+			}
+		}
+
+		if (!violationReason) {
+			if (isToolCallEventType("bash", event)) {
+				const command = event.input.command;
+
+				for (const rule of rules.bashToolPatterns) {
+					if (new RegExp(rule.pattern).test(command)) {
+						violationReason = rule.reason;
+						shouldAsk = !!rule.ask;
+						break;
+					}
+				}
+
+				if (!violationReason) {
+					for (const zap of rules.zeroAccessPaths) {
+						if (command.includes(zap)) {
+							violationReason = `Bash command references zero-access path: ${zap}`;
+							break;
+						}
+					}
+				}
+
+				if (!violationReason) {
+					for (const rop of rules.readOnlyPaths) {
+						if (command.includes(rop) && (/[\s>|]/.test(command) || /\b(rm|mv|sed)\b/.test(command))) {
+							violationReason = `Bash command may modify read-only path: ${rop}`;
+							break;
+						}
+					}
+				}
+
+				if (!violationReason && (/\brm\b/.test(command) || /\bmv\b/.test(command))) {
+					for (const ndp of rules.noDeletePaths) {
+						const expanded = expandTilde(ndp);
+						if (commandReferencesPath(command, ndp) || (expanded !== ndp && commandReferencesPath(command, expanded))) {
+							violationReason = `Bash command attempts to delete/move protected path: ${ndp}`;
+							break;
+						}
+					}
+				}
+			} else if (isToolCallEventType("write", event) || isToolCallEventType("edit", event)) {
+				outer2: for (const p of inputPaths) {
+					const resolved = resolvePath(p, ctx.cwd);
+					for (const rop of rules.readOnlyPaths) {
+						if (isPathMatch(resolved, rop, ctx.cwd)) {
+							violationReason = `Modification of read-only path restricted: ${rop}`;
+							break outer2;
+						}
+					}
+				}
+			}
+		}
+
+		if (!violationReason) return { block: false };
+
+		const detail = isToolCallEventType("bash", event) ? event.input.command : JSON.stringify(event.input);
+
+		// PORT: `ask` rules fail CLOSED when there is no UI to ask. Upstream
+		// would await ctx.ui.confirm() in headless and hang or throw.
+		if (shouldAsk && canPrompt(ctx)) {
+			const confirmed = await ctx.ui.confirm(
+				"🛡️ Damage-Control Confirmation",
+				`Dangerous command detected: ${violationReason}\n\nCommand: ${detail}\n\nDo you want to proceed?`,
+				{ timeout: 30000 },
+			);
+			if (confirmed) {
+				pi.appendEntry("damage-control-log", { tool: event.toolName, input: event.input, rule: violationReason, action: "confirmed_by_user" });
+				return { block: false };
+			}
+			ctx.ui.setStatus(`⚠️ Blocked: ${violationReason.slice(0, 30)}...`);
+			pi.appendEntry("damage-control-log", { tool: event.toolName, input: event.input, rule: violationReason, action: "blocked_by_user" });
+			if (rules.abortOnBlock) ctx.abort();
+			return { block: true, reason: `🛑 BLOCKED by Damage-Control: ${violationReason} (User denied)${rules.abortOnBlock ? ANTI_WORKAROUND_ABORT : ANTI_WORKAROUND_CONTINUE}` };
+		}
+
+		const headlessNote = shouldAsk ? " (ask-rule, non-interactive mode -- failing closed)" : "";
+		say(ctx, `🛑 Blocked ${event.toolName}: ${violationReason}${headlessNote}`);
+		if (canPrompt(ctx)) ctx.ui.setStatus(`⚠️ Blocked: ${violationReason.slice(0, 30)}...`);
+		pi.appendEntry("damage-control-log", { tool: event.toolName, input: event.input, rule: violationReason, action: "blocked" });
+		if (rules.abortOnBlock) ctx.abort();
+		return { block: true, reason: `🛑 BLOCKED by Damage-Control: ${violationReason}${headlessNote}${rules.abortOnBlock ? ANTI_WORKAROUND_ABORT : ANTI_WORKAROUND_CONTINUE}` };
+	});
+}
