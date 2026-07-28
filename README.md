@@ -1,8 +1,7 @@
 # pi-legwork
 
-`pi-delegate` is a command-line tool that hands bulky read-only research from
-your coding agent to a second, cheaper agent, and brings back the result instead
-of the whole search trail. It does the legwork; your agent keeps the judgment.
+`pi-delegate` moves bulky read-only research off your coding agent and onto a
+cheaper one. You get the result back, not the search trail.
 
 A question like *"which files reference the retry helper, and what for"* takes
 forty file reads to answer in ten rows. The answer is worth keeping. The
@@ -142,10 +141,10 @@ a property of which tasks you send, not a boundary the tool enforces.
 Use `-p readonly` when you want the guarantee. It is enough for surveys, greps,
 and file reads, and it costs nothing extra.
 
-`research` and `local` are kept apart for a different reason: an agent holding
-both network egress and bash can be aimed at something by an injected page, since
-fetched web content is untrusted input. Splitting removes the combination rather
-than policing it.
+`research` and `local` are split for a different reason. Fetched web content is
+untrusted input, so a page can instruct the agent it is being read by. An agent
+holding network egress *and* bash gives that instruction somewhere to land.
+Splitting removes the combination instead of policing it.
 
 ## The guard is not a sandbox
 
@@ -166,23 +165,24 @@ Proportionate for read-only surveys. It does not survive being load-bearing.
 
 ## Deliberately not included
 
-**Writing to your working tree.** If the delegate returns a diff you must read
-the diff, so gate 1 fails. If it writes files and returns "tests passed", gate 2
-fails — that proves the code runs, not that the answer is right, and for
-analysis or prose there is often no oracle at all.
+**Writing to your working tree.** If the delegate returns a diff, you have to
+read the diff, so gate 1 fails. If it writes the files and reports "tests
+passed", gate 2 fails: that proves the code runs, not that the answer is right.
+For analysis or prose there is often no oracle at all.
 
-There is a narrow shape that passes both — *delegate writes only where the check
-is a command, not a read* — but it is a hypothesis under test, not a feature.
+One narrow shape passes both gates: *delegate writes only where the check is a
+command, not a read.* That is a hypothesis under test here, not a feature.
 
 **Nested subagents.** Top-level fan-out already gives parallelism, and nesting
 costs the observability that tells you which model produced which claim.
 
 ## Positioning
 
-Most published integrations in this space are MCP-based and write-capable, built
-for parallelism: results flow back through the protocol. This is the other kind
-This one is a caller-side wrapper built for context economics, where only a
-pointer flows back.
+Most published integrations in this space are MCP-based and write-capable. They
+exist for parallelism, so results flow back through the protocol.
+
+This one is the other kind. It sits on the caller's side and returns a pointer,
+because the goal is protecting context rather than adding workers.
 
 Note the direction, because several unrelated projects share the command's name:
 this delegates **to** pi from the caller's side. Projects called `pi-delegate`
