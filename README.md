@@ -80,7 +80,7 @@ Gate 2 is the one people miss. *"Is this analysis sound"* reads twenty files and
 returns a paragraph: great ratio, but the paragraph cannot carry what you would
 need to believe it, so checking means reading the twenty files yourself.
 
-**→ [`practice/WHEN-TO-DELEGATE.md`](practice/WHEN-TO-DELEGATE.md)** — the full
+**→ [`skills/pi-delegate/WHEN-TO-DELEGATE.md`](skills/pi-delegate/WHEN-TO-DELEGATE.md)** — the full
 table, ~18 task shapes with the gate each one fails.
 
 **→ [`PHILOSOPHY.md`](PHILOSOPHY.md)** — why context, not money, is the scarce
@@ -97,7 +97,7 @@ instruction file each, no abstraction layer.
 
 | Host | Status |
 |---|---|
-| [Claude Code](integrations/claude-code/SKILL.md) | **Measured** |
+| [Claude Code](skills/pi-delegate/SKILL.md) | **Measured** |
 | [Codex CLI](integrations/codex/AGENTS.md) | Fires correctly; savings unmeasured |
 | [Anything shell-capable](integrations/README.md) | Untested |
 

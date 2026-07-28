@@ -8,7 +8,7 @@ one instruction file per host, not an abstraction layer.
 
 | Host | File | Status |
 |---|---|---|
-| Claude Code | [`claude-code/SKILL.md`](claude-code/SKILL.md) | **Measured** — 0.23× caller tokens on a grep-heavy task |
+| Claude Code | [`../skills/pi-delegate/SKILL.md`](../skills/pi-delegate/SKILL.md) | **Measured** — 0.23× caller tokens on a grep-heavy task |
 | Codex CLI | [`codex/AGENTS.md`](codex/AGENTS.md) | **Fires correctly**, savings unmeasured — see below |
 | Anything else | see below | Untested |
 
@@ -36,7 +36,7 @@ Three things to wire up:
    [`codex/AGENTS.md`](codex/AGENTS.md) is written to be copied as-is; it does
    not mention Codex.
 3. **Point at the full table.** The standing block stays short because it is
-   resident context. Link `practice/WHEN-TO-DELEGATE.md` from it so the agent
+   resident context. Link `skills/pi-delegate/WHEN-TO-DELEGATE.md` from it so the agent
    can reach the ~18-row decision table when a task is not obviously covered.
 
 ## What transfers, and what does not

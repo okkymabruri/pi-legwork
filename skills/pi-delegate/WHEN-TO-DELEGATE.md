@@ -11,7 +11,7 @@ transferable half of the project — the wrapper is ~300 lines of bash; knowing
 
 ## The two gates
 
-Every decision below is derived from these. See [PHILOSOPHY.md](../PHILOSOPHY.md)
+Every decision below is derived from these. See [PHILOSOPHY.md](https://github.com/okkymabruri/pi-legwork/blob/main/PHILOSOPHY.md)
 for why they exist.
 
 **Gate 1 — churn ≫ output.** Is the intermediate work (reads, greps, dead ends)
@@ -174,7 +174,7 @@ path or run a command. Splitting the tool set by job removes the combination
 rather than policing it.
 
 **The guard is defense in depth, not a sandbox** — see the threat model in the
-[README](../README.md).
+[README](https://github.com/okkymabruri/pi-legwork/blob/main/README.md).
 
 ## Out of scope
 
@@ -197,4 +197,4 @@ pi-delegate --doctor    # checks the install and says what is missing
 
 `--doctor` checks in order: pi on PATH → models configured → `PI_DELEGATE_MODEL`
 valid → second-opinion model → guard rules present. Each failure says what to do
-next. See [docs/PROVIDERS.md](../docs/PROVIDERS.md) to configure a model.
+next. See [docs/PROVIDERS.md](https://github.com/okkymabruri/pi-legwork/blob/main/docs/PROVIDERS.md) to configure a model.

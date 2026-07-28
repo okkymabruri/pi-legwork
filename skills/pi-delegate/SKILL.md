@@ -31,7 +31,7 @@ would need to believe it, so checking means reading the twenty files yourself.
 Both gates are economics and verifiability. Neither says the delegate is weak.
 
 **For the full decision table — ~18 task shapes with the gate each one fails —
-read `practice/WHEN-TO-DELEGATE.md` before delegating anything not obviously
+read `WHEN-TO-DELEGATE.md` (beside this file) before delegating anything not obviously
 covered above.**
 
 ## Writing the prompt
