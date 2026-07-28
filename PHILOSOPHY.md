@@ -1,11 +1,12 @@
 # Philosophy
 
-> **Delegate compressible evidence-gathering; retain accountable judgment.**
+This page explains which tasks belong on a delegate and which do not, and says
+plainly when the reasoning does not apply to you.
 
-Everything in this repo follows from that sentence. This page explains it, and —
-more importantly — says when it does not apply to you.
+The rule it all reduces to: **delegate evidence-gathering that compresses; keep
+the judgment that has to be accountable.**
 
-## The scarce resource is the caller's context
+## What is actually scarce
 
 Not tokens. Not money. **Context.**
 
@@ -109,10 +110,11 @@ whether delegation *pays*; this one decides whether it is *allowed*.
 
 ## The line on writes
 
-This tool does not write to your working tree, and that is a design position
-rather than a missing feature.
+This tool is not *for* writing to your working tree. That is a design position,
+not a missing feature. (It is also not a guarantee: the default `local` profile
+carries `bash`, so a delegate can write. `-p readonly` is the enforced version.)
 
-If the delegate returns a diff, you must read the diff to trust it — and reading
+If the delegate returns a diff, you must read the diff to trust it, and reading
 it costs what writing it would have. Gate 1 fails.
 
 The obvious counter is: let the delegate write the files itself and return only

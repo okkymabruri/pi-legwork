@@ -3,11 +3,11 @@ name: pi-delegate
 description: Run high-churn exploration on a cheaper agent and keep only the answer. Use when a task needs many file reads or greps but returns a short answer — codebase surveys, "which files reference X", inventories and gap-finding, git-history archaeology, log and data scans, web research with sources, screening or extracting from PDFs and decks. Also use for an independent second opinion on a hard decision.
 ---
 
-# Delegate the legwork
+# Delegating research to a cheaper agent
 
-`pi-delegate` runs the churn on a separate agent and returns a **pointer, not a
-payload**: a short head plus a file path. The saving is entirely in what never
-enters this context.
+`pi-delegate` runs a read-only task in a separate agent session and returns a
+short head plus a file path, so the file reads and greps it did never enter this
+context.
 
 ```bash
 pi-delegate "which files under src/ reference the retry helper, and what for"
