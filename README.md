@@ -1,32 +1,38 @@
 # pi-legwork
 
-**Delegate the legwork. Keep the judgment.**
+`pi-delegate` is a command-line tool that hands bulky read-only research from
+your coding agent to a second, cheaper agent, and brings back the result instead
+of the whole search trail. It does the legwork; your agent keeps the judgment.
 
-Your coding agent burns its context on *churn* — forty file reads to produce a
-ten-row table. `pi-legwork` runs that churn on a cheaper agent
-([pi](https://github.com/badlogic/pi-mono)) and returns a **pointer, not a
-payload**: a short head plus a file path.
-
-Measured **0.23× caller tokens** on a grep-heavy task, identical answers.
-
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+A question like *"which files reference the retry helper, and what for"* takes
+forty file reads to answer in ten rows. The answer is worth keeping. The
+thirty-nine reads are not, and they sit in your agent's context for the rest of
+the session.
 
 ```bash
 pi-delegate "which files under src/ reference the retry helper, and what for"
 ```
 
-> **Case study with code attached, not a maintained product.** Published because
-> the measurement and the boundaries seemed worth writing down. Unsupported
-> reference artifact — issues and PRs may go unanswered. Fork it freely.
+The work runs in a separate session using the
+[`pi` agent CLI](https://github.com/badlogic/pi-mono), which writes its full
+answer to a file. What returns to your agent is a short preview and the path.
 
----
+**Measured on one comparison:** delegating a grep-heavy task used 0.23× as many
+caller tokens, and both runs produced identical answers. One task class, two runs
+per arm. Cost savings additionally depend on your models, pricing, and quotas.
+See [the measurement](#the-measurement).
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+> **Status:** a case study and reference implementation, not a maintained
+> product. Support is not promised.
 
 ## Install
 
 Requires [pi](https://github.com/badlogic/pi-mono) on `PATH`, plus `jq`.
 
 ```bash
-git clone https://github.com/<you>/pi-legwork && cd pi-legwork
+git clone https://github.com/okkymabruri/pi-legwork && cd pi-legwork
 install -m755 pi-delegate.sh ~/.local/bin/pi-delegate
 
 pi-delegate --models          # what models pi already has configured
@@ -130,8 +136,8 @@ on at least one task class, with equal answers. One task class cleared it.
 
 **Read this before believing the phrase "read-only" anywhere else in this repo.**
 The default profile carries `bash`. A delegate under `local` that is asked to
-overwrite a file will do it — verified, not theorised. Read-only under `local` is
-a property of *which tasks you send*, not a boundary the tool enforces.
+overwrite a file will do it. Verified, not theorised. Read-only under `local` is
+a property of which tasks you send, not a boundary the tool enforces.
 
 Use `-p readonly` when you want the guarantee. It is enough for surveys, greps,
 and file reads, and it costs nothing extra.
@@ -175,7 +181,7 @@ costs the observability that tells you which model produced which claim.
 
 Most published integrations in this space are MCP-based and write-capable, built
 for parallelism: results flow back through the protocol. This is the other kind
-— a caller-side wrapper built for context economics, where only a
+This one is a caller-side wrapper built for context economics, where only a
 pointer flows back.
 
 Note the direction, because several unrelated projects share the command's name:

@@ -4,7 +4,7 @@ Paste this block into your `AGENTS.md`. Codex reads that file as standing
 instructions, so keep it short: it is resident context on every request.
 
 <!-- pi-legwork:start -->
-## Delegating legwork
+## Delegating research to a cheaper agent
 
 `pi-delegate` runs high-churn exploration on a cheaper agent and returns a
 short head plus a file path, so the intermediate reads never enter this context.
