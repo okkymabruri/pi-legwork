@@ -1,0 +1,218 @@
+{
+  "_about": "Rules for extensions/damage-control.ts. Deny-list of paths the delegated agent may not read, plus bash patterns it may not run. NOT a sandbox -- see README.",
+  "_abortOnBlock": "false = deny the access but let the agent continue with actionable feedback, so a delegated survey over a config dir still returns the rest of its answer. true = ctx.abort(), killing the run -- right for interactive sessions, wrong for delegation.",
+  "abortOnBlock": false,
+  "zeroAccessPaths": [
+    "SECRETS.md",
+    "mcp.json",
+    "mcp.project.json",
+    "config.toml",
+    "models.yml",
+    "auth.json",
+    "storage.sqlite",
+    "*.env",
+    ".env",
+    "~/.ssh/",
+    "~/.aws/",
+    "~/.pi/agent/auth.json",
+    "~/.git-credentials",
+    "*.pem",
+    "*.key",
+    "*serviceAccount*.json",
+    "*.tfstate",
+    "*credentials*",
+    "~/.config/mcp/mcp.json",
+    "~/.pi/agent/mcp.json",
+    "~/.agents/mcp.json",
+    ".mcp.json",
+    "web-search.json",
+    "~/.pi/web-search.json",
+    "~/.pi/agent/web-search.json"
+  ],
+  "readOnlyPaths": [
+    "/etc/",
+    "~/.zshrc",
+    "~/.bashrc",
+    "~/.claude/settings.json",
+    "package-lock.json",
+    "*.lock",
+    "uv.lock",
+    ".git/"
+  ],
+  "noDeletePaths": [
+    "~/.claude/",
+    "~/.pi/",
+    "CLAUDE.md",
+    "AGENTS.md",
+    "README.*",
+    ".git/",
+    ".github/",
+    "docs/",
+    "code-assistant/archive/"
+  ],
+  "bashToolPatterns": [
+    {
+      "pattern": "\\brm\\s+(-[^\\s]*)*-[rRf]",
+      "reason": "rm with recursive or force flags"
+    },
+    {
+      "pattern": "\\brm\\s+-[^\\s]*\\s+/\\s*$",
+      "reason": "rm targeting filesystem root"
+    },
+    {
+      "pattern": "\\bchmod\\s+(-R\\s+)?777\\b",
+      "reason": "chmod 777"
+    },
+    {
+      "pattern": "\\bchown\\s+-R\\s+root\\b",
+      "reason": "recursive chown to root"
+    },
+    {
+      "pattern": "\\bmkfs\\.",
+      "reason": "filesystem format"
+    },
+    {
+      "pattern": "\\bdd\\s+.*of=/dev/",
+      "reason": "dd writing to a raw device"
+    },
+    {
+      "pattern": "\\bkill\\s+-9\\s+-1\\b",
+      "reason": "kill every process"
+    },
+    {
+      "pattern": "\\bhistory\\s+-c\\b",
+      "reason": "clearing shell history"
+    },
+    {
+      "pattern": "\\bgit\\s+reset\\s+--hard\\b",
+      "reason": "git reset --hard discards uncommitted work",
+      "ask": true
+    },
+    {
+      "pattern": "\\bgit\\s+clean\\s+-[a-z]*f",
+      "reason": "git clean -f deletes untracked files",
+      "ask": true
+    },
+    {
+      "pattern": "\\bgit\\s+checkout\\s+--\\s*\\.",
+      "reason": "discards all uncommitted changes",
+      "ask": true
+    },
+    {
+      "pattern": "\\bgit\\s+push\\s+.*--force(?!-with-lease)",
+      "reason": "git push --force (use --force-with-lease)"
+    },
+    {
+      "pattern": "\\bgit\\s+filter-branch\\b",
+      "reason": "history rewrite"
+    },
+    {
+      "pattern": "\\bgit\\s+filter-repo\\b",
+      "reason": "history rewrite"
+    },
+    {
+      "pattern": "\\bgit\\s+branch\\s+-D\\b",
+      "reason": "force-delete branch",
+      "ask": true
+    },
+    {
+      "pattern": "\\bgit\\s+reflog\\s+expire\\b",
+      "reason": "reflog expiry destroys recovery points"
+    },
+    {
+      "pattern": "\\bgit\\s+stash\\s+clear\\b",
+      "reason": "git stash clear is unrecoverable"
+    },
+    {
+      "pattern": "\\bbrew\\s+uninstall\\b",
+      "reason": "brew uninstall can autoremove shared deps -- this removed node/npm once already in this repo's history",
+      "ask": true
+    },
+    {
+      "pattern": "\\bbrew\\s+autoremove\\b",
+      "reason": "brew autoremove removes 'unneeded' formulae that other tools may depend on",
+      "ask": true
+    },
+    {
+      "pattern": "\\bnpm\\s+uninstall\\s+-g\\b",
+      "reason": "global npm uninstall",
+      "ask": true
+    },
+    {
+      "pattern": "\\bDROP\\s+(DATABASE|TABLE|SCHEMA)\\b",
+      "reason": "destructive SQL DDL"
+    },
+    {
+      "pattern": "\\bTRUNCATE\\s+TABLE\\b",
+      "reason": "TRUNCATE TABLE"
+    },
+    {
+      "pattern": "\\bDELETE\\s+FROM\\s+\\w+\\s*;",
+      "reason": "unqualified DELETE (no WHERE)"
+    },
+    {
+      "pattern": "\\baws\\s+s3\\s+rm\\b.*--recursive",
+      "reason": "recursive S3 delete"
+    },
+    {
+      "pattern": "\\baws\\s+(rds\\s+delete-db-instance|cloudformation\\s+delete-stack|iam\\s+delete-)",
+      "reason": "destructive AWS operation"
+    },
+    {
+      "pattern": "\\bgcloud\\s+projects\\s+delete\\b",
+      "reason": "GCP project deletion"
+    },
+    {
+      "pattern": "\\bcurl\\b(?=.*\\B-(-data|d|F|-form|T|-upload-file)\\b)",
+      "reason": "curl uploading data (egress)",
+      "ask": true
+    },
+    {
+      "pattern": "\\bcurl\\b.*\\|\\s*(bash|sh|zsh)\\b",
+      "reason": "curl piped to a shell (remote code execution)"
+    },
+    {
+      "pattern": "\\bwget\\b.*\\s-O-\\s*\\|",
+      "reason": "wget piped to a shell"
+    },
+    {
+      "pattern": "\\bwget\\b(?=.*--post-(data|file))",
+      "reason": "wget posting data (egress)",
+      "ask": true
+    },
+    {
+      "pattern": "\\bnc\\b\\s+(-[a-zA-Z]+\\s+)*[^\\s|;]+\\s+\\d+",
+      "reason": "netcat to host:port (egress / reverse shell)"
+    },
+    {
+      "pattern": "\\b(ncat|socat)\\b",
+      "reason": "ncat/socat (egress / tunnel)"
+    },
+    {
+      "pattern": "\\bssh\\b\\s+[^\\s]+@",
+      "reason": "ssh to a remote host",
+      "ask": true
+    },
+    {
+      "pattern": "\\b(scp|rsync)\\b\\s+.*[^\\s]+@[^\\s]+:",
+      "reason": "scp/rsync to a remote host (egress)",
+      "ask": true
+    },
+    {
+      "pattern": "\\bbase64\\b[^|]*\\|\\s*(curl|wget|nc)\\b",
+      "reason": "base64 piped to a network tool (obfuscated egress)"
+    },
+    {
+      "pattern": "\\b(curl|wget)\\b.*(169\\.254\\.169\\.254|metadata\\.google\\.internal)",
+      "reason": "cloud metadata endpoint (credential theft)"
+    },
+    {
+      "pattern": "\\bgit\\s+remote\\s+add\\b",
+      "reason": "adding a git remote (potential exfil target)",
+      "ask": true
+    }
+  ],
+  "_egress": "Network-egress rules added 2026-07-26. zeroAccessPaths stops a credential reaching the model; these stop project detail LEAVING the machine. Before this, 0 of 28 patterns matched any network tool.",
+  "_mcpNote": "MCP config paths added 2026-07-26. brave-search-mcp carries BRAVE_API_KEY; exa and context7 are keyless. NOTE: this blocks Pi's TOOLS from reading these files -- it does NOT constrain pi-mcp-adapter itself, which loads config at extension-init, before any tool_call the guard can see.",
+  "_cookieNote": "web-search.json holds pi-web-access provider keys AND the allowBrowserCookies flag that gates Chrome cookie decryption (chrome-cookies.ts: pbkdf2Sync + createDecipheriv over a copied Cookies DB). Blocking it stops the delegate reading or flipping its own browser-cookie permission. Same caveat as the MCP paths: this constrains Pi's TOOLS, not the extension's own init-time read."
+}

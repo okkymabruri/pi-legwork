@@ -1,0 +1,447 @@
+#!/usr/bin/env bash
+# Delegate one task to Pi, return a POINTER not a payload.
+#
+# Measured basis (docs/pi-delegation-benchmark-2026-07.md): on grep-heavy work
+# this cut Claude's tokens 257,970 -> 60,453 (ratio 0.23, worst case 0.31),
+# with no accuracy loss. The saving comes entirely from what does NOT re-enter
+# Claude's context, so this script is built around keeping output small:
+#
+#   - Pi writes its full work to a file.
+#   - stdout is a short head + the file path.
+#   - Claude reads the file only if it actually needs the detail.
+#
+# Usage:
+#   pi-delegate.sh "task text"
+#   pi-delegate.sh -m minimax/MiniMax-M3 -o /tmp/out.md "task text"
+#   pi-delegate.sh -p research "search the web for X, cite sources"
+#   pi-delegate.sh -2 "independent read on this decision: <the whole problem>"
+#   pi-delegate.sh -f task.md
+#   pi-delegate.sh -nc "task"          # don't load the cwd's AGENTS.md/CLAUDE.md
+#   pi-delegate.sh -s audit-1 "task"   # named resumable session (default: none)
+#   pi-delegate.sh --models            # what models pi actually has configured
+#   pi-delegate.sh --doctor            # check the install, say what is missing
+#
+# Env:
+#   PI_DELEGATE_MODEL   default model, e.g. zai/glm-5.2 (see README: Providers)
+#   PI_DELEGATE_SO_MODEL  stronger model for -2 (second opinion)
+#   PI_DELEGATE_HEAD    lines of output echoed to stdout (default: 40)
+#   PI_DELEGATE_TIMEOUT seconds before the run is killed (default: 600)
+
+set -uo pipefail
+
+# Deliberately NOT `${PI_DELEGATE_MODEL:?...}`. That aborts on line 30, before
+# any flag is parsed -- so `--doctor`, `--models` and `-h`, the three things that
+# tell a new user what is wrong, would all die with the error they exist to
+# explain. The requirement is enforced after parsing instead.
+DEFAULT_MODEL="${PI_DELEGATE_MODEL:-}"
+HEAD_LINES="${PI_DELEGATE_HEAD:-40}"
+TIMEOUT="${PI_DELEGATE_TIMEOUT:-600}"
+PROFILE="${PI_DELEGATE_PROFILE:-local}"
+MODEL=""            # empty until -m; lets -2 pick without overriding an explicit choice
+OUTFILE=""
+TASK=""
+
+# Second opinion runs on a stronger tier than everything else, and that is a
+# deliberate exception to the economics the rest of this script is built on.
+#
+# Every other shape is delegated to SAVE tokens, so the cheap fill-first chain
+# is exactly right: volume is the whole point. Second opinion is delegated for
+# INDEPENDENCE -- Pi's lack of conversation context, normally the weakness, is
+# the entire reason to ask. It is one call returning a short answer, so the
+# stronger tier costs almost nothing, while a weak model's confident agreement
+# is worse than not asking at all.
+SECOND_OPINION=0
+SO_MODEL="${PI_DELEGATE_SO_MODEL:-$DEFAULT_MODEL}"
+
+# Project context files (AGENTS.md / CLAUDE.md in the cwd) load by DEFAULT.
+#
+# The docs asserted the opposite -- "Pi sees only the prompt, no CLAUDE.md" --
+# for as long as this wrapper has existed. Measured 2026-07-28: a canary in
+# AGENTS.md came back verbatim, and so did one in CLAUDE.md with no AGENTS.md
+# present. Which of the two wins when both exist is untested. Only the cwd is
+# read: a run from a dir with neither returned NONE, and the global
+# ~/.claude/CLAUDE.md never appeared.
+#
+# Left ON for surveys -- repo conventions are usually what you'd have had to
+# put in the prompt anyway. Forced OFF for -2 below, and available as -nc.
+NO_CONTEXT=0
+
+# Sessions are OFF by default, which is what the one-shot semantics already
+# implied -- but pi was saving one per cwd regardless, and ~/.pi/agent/sessions
+# had reached 30 MB across ~21 project dirs with nothing ever reaping it.
+#
+# -s <id> opts back in, for the one shape that wants it: a follow-up on a
+# survey that would otherwise re-pay the per-call floor and re-send the whole
+# context. --session-id (not -c) because it is deterministic and creates on
+# first use -- "continue the previous session" is ambiguous the moment six
+# workers run in parallel.
+SESSION_ID=""
+
+# Tool profiles -- the blast-radius lever.
+#
+# Registering web tools put a network-egress channel in the same agent that
+# holds bash/read/edit. Two consequences that only appear together:
+#   - anything Pi legitimately read can leave via a URL query string;
+#   - fetched web content is UNTRUSTED INPUT, so a page can instruct the agent
+#     to read a path or run a command.
+#
+# Splitting the tool set by job removes the combination rather than trying to
+# police it: a local survey has no network to exfiltrate through, and a
+# research run has no bash/edit for an injected page to aim at. The token floor
+# follows the same lever, since every registered tool's schema ships per call.
+#
+#   local     read/grep/find/ls/bash, NO network   ~3.1k floor   (default)
+#   research  network only, NO bash/edit/write     ~4.7k floor
+#   full      everything -- both halves at once; opt in deliberately
+profile_tools() {
+  case "$1" in
+    local)    echo "read,grep,find,ls,bash" ;;
+    # `mcp` is a single PROXY tool -- the adapter's design ("one proxy tool
+    # (~200 tokens) instead of hundreds"). Enumerating individual MCP tool
+    # names does NOT work; they are reachable through the proxy, not
+    # registered.
+    #
+    # SECURITY: allowlisting `mcp` grants every ENABLED server, so the
+    # fail-closed boundary lives in ~/.pi/agent/mcp.json `disabled` flags, not
+    # here. Importing host configs once pulled in `node_repl_js` -- a
+    # JavaScript REPL, i.e. arbitrary code execution -- into the very profile
+    # that removes bash. Keep that file an explicit allowlist and keep
+    # hostConfigDiscovery off.
+    research) echo "web_search,fetch_content,get_search_content,read,mcp" ;;
+    full)     echo "" ;;
+    *) echo "unknown profile: $1 (want local|research|full)" >&2; exit 1 ;;
+  esac
+}
+
+usage() { sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+
+# `pi --list-models` already prints provider, model, context, max output,
+# thinking and image support. Pass it through rather than maintaining a second
+# catalogue that would drift from whatever pi is actually configured with.
+list_models() {
+  command -v pi >/dev/null || { echo "pi is not on PATH -- see README: Install" >&2; exit 1; }
+  pi --list-models ${1:+"$1"}
+  exit 0
+}
+
+# Every check answers "what do I do next", because the failure this replaces was
+# a bare `PI_DELEGATE_MODEL: set PI_DELEGATE_MODEL...` abort that told a new user
+# nothing about which models existed or where to configure one.
+#
+# Order matters: each check is a precondition for the one below it, so the first
+# failure is the one worth fixing and later checks would only add noise.
+doctor() {
+  rc=0
+  say() { printf '%-4s %s\n' "$1" "$2"; }
+
+  if command -v pi >/dev/null; then
+    say "ok" "pi on PATH ($(command -v pi))"
+  else
+    say "FAIL" "pi not on PATH -- install it: https://github.com/badlogic/pi-mono"
+    echo; echo "Nothing else can be checked until pi is installed."
+    exit 1
+  fi
+
+  models="$(pi --list-models 2>/dev/null)"
+  count=$(printf '%s\n' "$models" | tail -n +2 | grep -c . || true)
+  if [ "${count:-0}" -gt 0 ] 2>/dev/null; then
+    say "ok" "$count model(s) configured in pi"
+  else
+    say "FAIL" "no models configured -- see docs/PROVIDERS.md, then re-run --doctor"
+    rc=1
+  fi
+
+  if [ -n "$DEFAULT_MODEL" ]; then
+    if printf '%s\n' "$models" | grep -q -- "$DEFAULT_MODEL"; then
+      say "ok" "PI_DELEGATE_MODEL=$DEFAULT_MODEL is configured"
+    else
+      say "FAIL" "PI_DELEGATE_MODEL=$DEFAULT_MODEL is not in pi --list-models"
+      rc=1
+    fi
+  else
+    say "FAIL" "PI_DELEGATE_MODEL is unset -- pick one from 'pi-delegate --models'"
+    rc=1
+  fi
+
+  if [ -n "${PI_DELEGATE_SO_MODEL:-}" ]; then
+    say "ok" "second opinion uses $PI_DELEGATE_SO_MODEL"
+  else
+    say "note" "PI_DELEGATE_SO_MODEL unset -- -2 will reuse PI_DELEGATE_MODEL."
+    say "" "     A stronger model here is worth it: weak agreement is worse than none."
+  fi
+
+  # The guard is optional, so a missing one is a note, not a failure -- but the
+  # note has to say plainly what is not being protected.
+  if [ -f "$HOME/.pi/damage-control-rules.json" ]; then
+    say "ok" "guard rules at ~/.pi/damage-control-rules.json"
+  else
+    say "note" "no guard rules -- credential paths are NOT blocked. See README: Install"
+  fi
+
+  echo
+  [ "$rc" = 0 ] && echo "Ready." || echo "Fix the FAIL lines above, then re-run --doctor."
+  exit "$rc"
+}
+
+case "${1:-}" in
+  --models) shift; list_models "${1:-}" ;;
+  --doctor) doctor ;;
+esac
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -m|--model)   MODEL="$2"; shift 2 ;;
+    -p|--profile) PROFILE="$2"; shift 2 ;;
+    -o|--out)     OUTFILE="$2"; shift 2 ;;
+    -f|--file)    TASK="$(cat "$2")"; shift 2 ;;
+    -s|--session) SESSION_ID="$2"; shift 2 ;;
+    -nc|--no-context) NO_CONTEXT=1; shift ;;
+    -2|--second-opinion) SECOND_OPINION=1; shift ;;
+    -h|--help)    usage 0 ;;
+    --)           shift; TASK="$*"; break ;;
+    -*)           echo "unknown flag: $1" >&2; usage 1 ;;
+    *)            TASK="$*"; break ;;
+  esac
+done
+
+# Enforced here rather than at assignment, so --doctor/--models/-h still run
+# when nothing is configured yet. Points at the tool that explains the problem
+# instead of restating it.
+if [ -z "$DEFAULT_MODEL" ] && [ -z "$MODEL" ]; then
+  echo "no delegate model set." >&2
+  echo "  export PI_DELEGATE_MODEL=<provider/model>   # 'pi-delegate --models' lists them" >&2
+  echo "  pi-delegate --doctor                        # checks the whole install" >&2
+  exit 1
+fi
+
+# Resolved after parsing so flag order does not matter, and so an explicit -m
+# always wins over the -2 default.
+if [ -z "$MODEL" ]; then
+  [ "$SECOND_OPINION" = 1 ] && MODEL="$SO_MODEL" || MODEL="$DEFAULT_MODEL"
+fi
+
+# Second opinion never loads project context, and this is not a preference.
+# The whole reason to ask Pi is that it has none of this conversation; a repo
+# CLAUDE.md is exactly HALF the context, which is the worst of the three
+# states -- confident answer to the wrong question, which the rules doc already
+# names as worse than not asking. Full context is impossible, so take none.
+[ "$SECOND_OPINION" = 1 ] && NO_CONTEXT=1
+
+# The stronger tier is reserved for second opinion, and reserving it means
+# refusing it elsewhere rather than trusting everyone to remember. Research is
+# the shape most likely to drift: it is the other one where quality feels
+# worth paying for, but it is many fetches, so volume is the point and the
+# cheap chain is correct. Left as a convention this would erode within a week.
+#
+# Only enforceable when the two are actually different models. If
+# PI_DELEGATE_SO_MODEL is unset it falls back to PI_DELEGATE_MODEL, and then
+# every call would match this test and be refused.
+if [ "$SO_MODEL" != "$DEFAULT_MODEL" ] && [ "$MODEL" = "$SO_MODEL" ] && [ "$SECOND_OPINION" != 1 ]; then
+  echo "refusing -m $SO_MODEL without -2: that model is reserved for second" >&2
+  echo "opinion, where one short answer justifies the stronger tier. Every" >&2
+  echo "other shape -- research included -- runs on $DEFAULT_MODEL. Use -2 if" >&2
+  echo "this really is a second opinion." >&2
+  exit 1
+fi
+
+[ -n "$TASK" ] || { echo "no task given" >&2; usage 1; }
+command -v pi >/dev/null || { echo "pi not on PATH" >&2; exit 1; }
+
+if [ -z "$OUTFILE" ]; then
+  mkdir -p "${TMPDIR:-/tmp}/pi-delegate"
+  OUTFILE="${TMPDIR:-/tmp}/pi-delegate/$(date +%Y%m%d-%H%M%S)-$$.md"
+fi
+mkdir -p "$(dirname "$OUTFILE")"
+
+# Terseness is the economics, not a style preference. A correct-but-verbose
+# delegate erases the saving: on the same task GLM returned ~60 chars and
+# MiniMax 1,498, for identical answers.
+CONTRACT="You are a delegated worker. Another agent will read your answer, so it
+pays tokens for every word you emit. Rules:
+- Answer only what is asked. No preamble, no restatement of the task, no
+  summary of your process, no offer to do more.
+- Show reasoning only where it changes the answer.
+- If the answer is a list, emit the list. If it is one word, emit one word.
+
+TASK:
+$TASK"
+
+# The generic contract optimises for terseness. Second opinion needs one more
+# thing: permission to disagree. A delegate told only to be brief drifts toward
+# agreeing briefly, which is the one outcome that makes the call worthless.
+[ "$SECOND_OPINION" = 1 ] && CONTRACT="You are giving an INDEPENDENT second opinion. You have no
+access to the asker's conversation, and that is the point -- do not try to
+infer what they want to hear. Judgement is in scope here, unlike a survey.
+- Lead with the verdict: agree, disagree, or the load-bearing assumption.
+- If you disagree, say so first and plainly. Confident agreement that turns
+  out to be wrong is worse than no answer.
+- If the problem as stated is missing something you would need, name that gap
+  instead of guessing around it.
+- Be brief. Reasoning only where it changes the verdict.
+
+PROBLEM:
+$TASK"
+
+START=$(date +%s)
+
+# --mode json, not -p.
+#
+# `pi -p` prints only the answer text, so the ONLY model name available to
+# report was the one we requested -- and with the default model that is a fill-first
+# chain, not a model. The skill's rule 1 ("check responseModel, scale
+# verification to the serving tier") was therefore unfollowable, and the
+# quota-drain indicator was dead: a run could be served by GPT-5.6 Sol or
+# MiniMax M3 with no way to tell.
+#
+# --mode json emits the same answer plus `responseModel` -- the model that
+# actually served -- and per-message token usage. Output stays thin because
+# we extract rather than echo the stream.
+#
+# PI_OFFLINE skips startup version/catalog network calls (documented as
+# startup-only; it does not disable web tools). Set PI_DELEGATE_ONLINE=1 to
+# turn it off if a research delegation ever behaves as though it is blocked.
+RAWFILE="$OUTFILE.jsonl"
+PI_OFFLINE="${PI_DELEGATE_ONLINE:+0}"; PI_OFFLINE="${PI_OFFLINE:-1}"
+
+TOOLS_ARG=()
+PROFILE_TOOLS="$(profile_tools "$PROFILE")"
+[ -n "$PROFILE_TOOLS" ] && TOOLS_ARG=(--tools "$PROFILE_TOOLS")
+
+# Sessions off unless -s asked for one; see SESSION_ID above for why.
+SESSION_ARG=(--no-session)
+[ -n "$SESSION_ID" ] && SESSION_ARG=(--session-id "$SESSION_ID")
+
+CONTEXT_ARG=()
+[ "$NO_CONTEXT" = 1 ] && CONTEXT_ARG=(--no-context-files)
+
+# A guard trip during a RESEARCH run is anomalous -- nothing legitimate reads a
+# credential file while surveying the web, so it is a likely prompt-injection
+# signal and the turn should stop rather than be told "continue with the rest".
+[ "$PROFILE" = "research" ] && export PI_DC_ABORT=1
+
+# `${arr[@]+"${arr[@]}"}`, not `"${arr[@]}"`. Under `set -u`, macOS bash 3.2
+# treats an EMPTY array expansion as an unbound variable and aborts. That is
+# not hypothetical: `-p full` sets TOOLS_ARG=() by design, so the full profile
+# has never been able to run. Adding CONTEXT_ARG=() made it fire on every call
+# that did not pass -nc.
+PI_OFFLINE="$PI_OFFLINE" pi --mode json -p "$CONTRACT" --model "$MODEL" \
+  ${TOOLS_ARG[@]+"${TOOLS_ARG[@]}"} \
+  ${SESSION_ARG[@]+"${SESSION_ARG[@]}"} \
+  ${CONTEXT_ARG[@]+"${CONTEXT_ARG[@]}"} \
+  >"$RAWFILE" 2>"$OUTFILE.err" &
+PI_PID=$!
+
+# Self-terminating watchdog: polls in 1s steps and exits as soon as pi is gone.
+#
+# Do NOT use `( sleep "$TIMEOUT"; kill ... ) &` here. `kill $WATCHDOG` kills the
+# subshell but NOT its child `sleep`, which then lingers as an orphan for the
+# full timeout -- every delegation would leak one stray process. Short sleeps
+# mean the worst case is a 1s orphan, and the loop reaps itself normally.
+( while [ "$TIMEOUT" -gt 0 ] 2>/dev/null; do
+    kill -0 "$PI_PID" 2>/dev/null || exit 0
+    sleep 1
+    TIMEOUT=$((TIMEOUT - 1))
+  done
+  kill "$PI_PID" 2>/dev/null ) &
+WATCHDOG=$!
+
+wait "$PI_PID"; RC=$?
+# `disown` looks like the obvious fix for the "Terminated: 15" notice but must
+# not be used here -- job control is off in a non-interactive shell and it made
+# `wait` hang outright.
+{ kill "$WATCHDOG" && wait "$WATCHDOG"; } 2>/dev/null
+END=$(date +%s)
+
+# Surface guard blocks explicitly -- a blocked run is the safety hook working,
+# not the model failing, and the caller must be able to tell them apart.
+#
+# NOT `grep -c ... || echo 0`: grep prints its count AND exits 1 when the count
+# is zero, so the fallback fires too and the variable becomes "0\n0".
+GUARD=$(grep -c 'damage-control.*Blocked' "$OUTFILE.err" 2>/dev/null) || true
+GUARD=${GUARD:-0}
+
+# Extract the answer text from the JSONL stream into OUTFILE, so callers and
+# the head-preview below behave exactly as they did under `pi -p`.
+if [ -s "$RAWFILE" ]; then
+  # Every extraction goes through `fromjson? // empty`, which parses each line
+  # independently and drops the ones that fail.
+  #
+  # Plain `jq -r 'select(...)' file` looks equivalent and is not: jq ABORTS on
+  # the first unparseable line, so one malformed line anywhere in a 2 MB stream
+  # empties the whole answer. That is exactly what happened -- pi splits very
+  # long message_update lines, jq hit `Invalid numeric literal`, and four
+  # delegations returned 0 bytes while still reporting rc=0. A silent empty
+  # result is the worst failure mode this wrapper has: it looks like the model
+  # found nothing.
+  jqline() { jq -R -r "fromjson? // empty | $1" "$RAWFILE" 2>/dev/null; }
+
+  jqline 'select(.type=="message_end" and .message.role=="assistant")
+          | [.message.content[]? | select(.type=="text") | .text] | join("")' \
+    | sed '/^$/d' >"$OUTFILE" || : >"$OUTFILE"
+  # The model that ACTUALLY served, not the one requested. With the default model these
+  # differ by design -- that difference is the quota-drain indicator.
+  SERVED=$(jqline 'select(.type=="message_end" and .message.role=="assistant")
+                   | .message.responseModel // .message.model' \
+           | grep -v '^null$' | sort -u | paste -sd, -)
+  # Sum input+output per request, NOT usage.totalTokens.
+  #
+  # `.input` is the whole conversation re-sent each turn, so it climbs
+  # monotonically (measured: 4,834 -> 100,850 across one 12-message run) --
+  # summing it is correct for BILLING, since every request pays its full input.
+  # `totalTokens` is not: it disagrees with input+output on some messages
+  # (88,299 + 116 reported as 149,343) because it folds in cache and reasoning
+  # counters, so summing it inflated the figure ~1.5x. The old number was
+  # 1,218,368 where real consumption was ~798k.
+  #
+  # `ctx:` is the last request's input+output -- the high-water context, which
+  # is the number that matters for a model's window.
+  TOKENS=$(jqline 'select(.type=="message_end" and .message.role=="assistant")
+                   | .message.usage | [(.input // 0), (.output // 0)] | @tsv' \
+           | awk '{s+=$1+$2} END{print s+0}')
+  CTX=$(jqline 'select(.type=="message_end" and .message.role=="assistant")
+                | .message.usage | [(.input // 0), (.output // 0)] | @tsv' \
+        | awk 'END{print $1+$2+0}')
+  TOOLS=$(jqline 'select(.type=="tool_execution_end") | .toolName' \
+          | sort | uniq -c | awk '{printf "%s×%s ", $1, $2}')
+  # Report dropped lines rather than hiding them -- a large count means the
+  # answer above may be partial.
+  TOTAL_LINES=$(wc -l <"$RAWFILE" | tr -d ' ')
+  GOOD_LINES=$(jq -R 'fromjson? // empty | 1' "$RAWFILE" 2>/dev/null | wc -l | tr -d ' ')
+  DROPPED=$((TOTAL_LINES - GOOD_LINES))
+else
+  : >"$OUTFILE"; SERVED=""; TOKENS=0; CTX=0; TOOLS=""; DROPPED=0
+fi
+
+BYTES=$(wc -c <"$OUTFILE" | tr -d ' ')
+LINES=$(wc -l <"$OUTFILE" | tr -d ' ')
+
+echo "--- pi-delegate ---"
+echo "profile:   $PROFILE  (tools: ${PROFILE_TOOLS:-<all>})"
+echo "requested: $MODEL"
+echo "served by: ${SERVED:-<unknown>}   tokens: ${TOKENS:-?} (ctx ${CTX:-?})"
+echo "session:   ${SESSION_ID:-<none>}   context files: $([ "$NO_CONTEXT" = 1 ] && echo "off" || echo "cwd AGENTS.md/CLAUDE.md")"
+[ -n "$TOOLS" ] && echo "tools:     $TOOLS"
+echo "elapsed:   $((END - START))s   rc=$RC   output: ${BYTES}B / ${LINES} lines"
+[ "${DROPPED:-0}" -gt 0 ] 2>/dev/null && \
+  echo "stream:    $DROPPED unparseable line(s) skipped -- answer may be partial"
+[ "$BYTES" = "0" ] && [ "$RC" = "0" ] && \
+  echo "EMPTY:   rc=0 but no answer text. Check $RAWFILE -- this is a harness"
+[ "$BYTES" = "0" ] && [ "$RC" = "0" ] && \
+  echo "         problem, NOT the model reporting that it found nothing."
+echo "file:      $OUTFILE"
+[ "$GUARD" != "0" ] && {
+  echo "GUARD:   $GUARD block(s) -- safety hook denied access:"
+  grep 'damage-control.*Blocked' "$OUTFILE.err" | sed 's/^/         /'
+}
+[ "$RC" != "0" ] && echo "STDERR:  $(tail -3 "$OUTFILE.err" | tr '\n' ' ')"
+echo "---"
+
+if [ "$LINES" -le "$HEAD_LINES" ]; then
+  cat "$OUTFILE"
+else
+  head -n "$HEAD_LINES" "$OUTFILE"
+  echo
+  echo "[truncated: $((LINES - HEAD_LINES)) more lines -- read $OUTFILE if needed]"
+fi
+
+exit "$RC"
