@@ -5,3 +5,8 @@ __pycache__/
 node_modules/
 .venv/
 *.local.*
+
+# The measurement harness stays local. Its numbers are specific to one caller's
+# resident context and one quota pair, and publishing a corpus invites people to
+# quote a ratio that was never theirs.
+benchmark/

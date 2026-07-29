@@ -12,10 +12,10 @@ Answering that takes about forty file reads to produce ten rows. The pi agent
 does all forty in its own session and writes the full answer to a file. Claude
 Code gets a short preview and the path — none of the reads enter its context.
 
-The saving depends on your task, your models, and your quota, so the headline is
-a harness rather than a number: [`benchmark/`](benchmark/) measures caller tokens
-on both arms. Raw runs are not published — measure your own. When delegation is
-worth it at all: [PHILOSOPHY.md](PHILOSOPHY.md).
+The saving depends on your task, your models, your quota, and how much context
+your caller already carries on every turn. No headline number ships here, and
+none should be inherited — measure your own setup. When delegation is worth it
+at all: [PHILOSOPHY.md](PHILOSOPHY.md).
 
 > A case study and reference implementation, not a maintained product.
 
