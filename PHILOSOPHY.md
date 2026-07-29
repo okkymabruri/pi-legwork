@@ -105,8 +105,22 @@ whether delegation *pays*; this one decides whether it is *allowed*.
 
 | | |
 |---|---|
-| **Buys** | Caller context stays clean. Cheap quota absorbs the churn. Cost variance drops sharply — the measured direct runs varied 67% run-to-run, delegated runs 0.6% |
+| **Buys** | Caller context stays clean. Cheap quota absorbs the churn. Lower cost variance, *conditionally* — see below |
 | **Costs** | A per-call floor (~3.1k input tokens local, ~4.7k with web tools). Latency. A delegate that cannot see your conversation, so every prompt must carry its own context |
+
+**On the variance claim.** An earlier version of this page reported "direct runs
+varied 67% run-to-run, delegated runs 0.6%" without qualification. Later runs
+showed the delegated side is **bimodal**, not stable: it is ~1% apart when the
+caller accepts the delegate's pointer and stops, and several times more expensive
+when the caller adds a turn to re-check the result. The variance does not
+collapse on its own. It collapses only if you actually stop.
+
+**Why one extra turn costs so much.** A caller re-reads its entire resident
+context on every turn, so cost tracks *turns* far more closely than it tracks
+work. On a caller carrying a large `CLAUDE.md` and rule set, one round of
+double-checking can cost more than the delegation saved. The bigger your standing
+context, the more this dominates — and the less any ratio published here, or
+anywhere, transfers to you.
 
 ## The line on writes
 
@@ -145,10 +159,22 @@ The claims this repo makes, and the ones it refuses to:
   work. **Not** a general cost reduction. Neither the raw runs nor the harness
   are published, because both are specific to one caller's resident context and
   one pair of quotas — build your own before trusting any ratio here.
+- **That figure is weaker than two significant digits suggest, and I would not
+  defend it to a decimal place now.** Two reasons, both found later. Its
+  attribution method summed whatever session ids were new in a time window, and
+  that window can catch an unrelated session running on the same machine — a
+  contaminated arm is invisible in the number, it just looks surprising. And a
+  later benchmark on the same rig showed 63–471% run-to-run spread, which n=2
+  cannot see through. Treat "roughly a quarter" as the shape of a result, not a
+  quantity, and re-derive it yourself before repeating it.
 - **Cost tracks turns more than it tracks work.** A caller re-reads its resident
   context every turn, so a delegation that saves a hundred file reads can still
   lose to one extra round of double-checking. The larger your `CLAUDE.md` and
   rule set, the more this dominates, and the less any published ratio transfers.
+- **A delegate carrying `bash` is not confined to the tools you granted it.**
+  Nothing stops it shelling out to another agent, or opening a socket. The tool
+  allowlist bounds what the *model* can call, not what a shell can reach.
+  `-p readonly` is the only profile that closes this, because it drops `bash`.
 - **The guard is a policy hook, not a sandbox.** Upstream pi states it has no
   permission system and recommends containerization. Anything reaching the
   filesystem without passing through a hooked tool call is outside the guard.
