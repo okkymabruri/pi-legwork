@@ -142,8 +142,13 @@ The claims this repo makes, and the ones it refuses to:
 
 - **Measured, on my own setup**: one task class, n=2 per arm, roughly a quarter
   the caller tokens, identical answers. An existence proof for that shape of
-  work. **Not** a general cost reduction, and the raw runs are not published --
-  `benchmark/` is here so you can measure your own.
+  work. **Not** a general cost reduction. Neither the raw runs nor the harness
+  are published, because both are specific to one caller's resident context and
+  one pair of quotas — build your own before trusting any ratio here.
+- **Cost tracks turns more than it tracks work.** A caller re-reads its resident
+  context every turn, so a delegation that saves a hundred file reads can still
+  lose to one extra round of double-checking. The larger your `CLAUDE.md` and
+  rule set, the more this dominates, and the less any published ratio transfers.
 - **The guard is a policy hook, not a sandbox.** Upstream pi states it has no
   permission system and recommends containerization. Anything reaching the
   filesystem without passing through a hooked tool call is outside the guard.
