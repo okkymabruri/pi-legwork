@@ -1,6 +1,23 @@
+pi-legwork
+Copyright (c) 2026 Okky Mabruri
+
+This product includes software developed by third parties, listed below.
+The project as a whole is MIT-licensed (see LICENSE); the notices here are
+retained as those licenses require.
+
+--------------------------------------------------------------------------------
+
+extensions/damage-control.ts
+
+Ported from disler/pi-vs-claude-code, at
+https://github.com/disler/pi-vs-claude-code (extensions/damage-control.ts).
+
+Modified by Okky Mabruri. Deviations from upstream are marked `PORT:` in the
+source, each with a reason.
+
 MIT License
 
-Copyright (c) 2026 Okky Mabruri
+Copyright (c) 2026 IndyDevDan
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -19,9 +36,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
---------------------------------------------------------------------------------
-
-Portions of this software are derived from third-party MIT-licensed work.
-Their copyright notices are retained in NOTICE and in the source files
-themselves.

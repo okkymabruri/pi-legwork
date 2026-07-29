@@ -106,3 +106,7 @@ filesystem without going through a hooked tool call is outside it. See
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+`extensions/damage-control.ts` is ported from
+[disler/pi-vs-claude-code](https://github.com/disler/pi-vs-claude-code) (MIT,
+© 2026 IndyDevDan) and modified. Third-party notices: [NOTICE](NOTICE).
