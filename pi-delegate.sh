@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Delegate one task to Pi, return a POINTER not a payload.
 #
-# Measured basis (docs/pi-delegation-benchmark-2026-07.md): on grep-heavy work
-# this cut Claude's tokens 257,970 -> 60,453 (ratio 0.23, worst case 0.31),
-# with no accuracy loss. The saving comes entirely from what does NOT re-enter
-# Claude's context, so this script is built around keeping output small:
+# The saving comes entirely from what does NOT re-enter the caller's context,
+# so this script is built around keeping output small. Whether that is worth it
+# depends on your task and models: benchmark/ measures both arms, and no result
+# file ships, so measure before trusting any ratio.
 #
 #   - Pi writes its full work to a file.
 #   - stdout is a short head + the file path.
