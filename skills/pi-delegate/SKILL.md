@@ -50,7 +50,9 @@ The delegate sees the prompt and the working directory's `AGENTS.md`/`CLAUDE.md`
 It never sees this conversation, so the prompt carries everything.
 
 - Name exact paths.
-- State the output shape: "a markdown table", "just the list", "one word".
+- **Cap the output shape**: "one line per file", "a markdown table", "just the
+  list", "one word". Asking for a full inventory with evidence for every item
+  returns an answer as large as the work, and the saving disappears.
 - For research, require a source URL per claim.
 - For documents, require a page number and a verbatim quote per claim.
 

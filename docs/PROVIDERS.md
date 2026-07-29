@@ -1,5 +1,8 @@
 # Configuring a delegate model
 
+> Do not have pi yet? `npm install -g --ignore-scripts @earendil-works/pi-coding-agent`,
+> or follow [pi.dev](https://pi.dev). Docs: [pi.dev quickstart](https://pi.dev/docs/latest/quickstart).
+
 `pi-delegate` needs one model set in `PI_DELEGATE_MODEL`. It does not ship a
 default, because the right delegate depends on which quota *you* have spare —
 that asymmetry is the whole economic argument.

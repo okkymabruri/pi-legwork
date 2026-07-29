@@ -31,8 +31,11 @@ Keep locally: writing code, reviewing diffs, commit messages, and any judgment
 call whose evidence is the reading itself ("is this analysis sound").
 
 The delegate sees only the prompt and the working directory's context files, so
-name exact paths and state the output shape you want. Read the head; open the
-file only when the head is insufficient.
+name exact paths and **cap the output shape**: "one line per file", "a markdown
+table", "just the list". Asking for a full inventory with evidence for every
+item defeats the point — the answer comes back as large as the work, and the
+saving disappears. Read the head; open the file only when the head is
+insufficient.
 
 For a hard or hard-to-reverse decision, get an independent read:
 `pi-delegate -2 "<the whole problem>"` — put the entire problem in the prompt.
