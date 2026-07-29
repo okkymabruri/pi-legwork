@@ -8,12 +8,17 @@ retained as those licenses require.
 --------------------------------------------------------------------------------
 
 extensions/damage-control.ts
+damage-control-rules.json
 
 Ported from disler/pi-vs-claude-code, at
-https://github.com/disler/pi-vs-claude-code (extensions/damage-control.ts).
+https://github.com/disler/pi-vs-claude-code -- the hook from
+extensions/damage-control.ts, the rule set from .pi/damage-control-rules.yaml.
 
-Modified by Okky Mabruri. Deviations from upstream are marked `PORT:` in the
-source, each with a reason.
+Modified by Okky Mabruri. Deviations in the hook are marked `PORT:` in the
+source, each with a reason. The rule set keeps upstream's four-key schema
+(zeroAccessPaths, readOnlyPaths, noDeletePaths, bashToolPatterns) and 13 of its
+bash patterns verbatim; it is serialised as JSON rather than YAML and the
+remaining entries are this project's own.
 
 MIT License
 
