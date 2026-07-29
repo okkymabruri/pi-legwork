@@ -1,5 +1,6 @@
 {
   "_about": "Rules for extensions/damage-control.ts. Deny-list of paths the delegated agent may not read, plus bash patterns it may not run. NOT a sandbox -- see README.",
+  "_attribution": "Schema and 13 bash patterns derived from disler/pi-vs-claude-code (.pi/damage-control-rules.yaml), MIT (c) 2026 IndyDevDan -- https://github.com/disler/pi-vs-claude-code. Modified; see NOTICE.",
   "_abortOnBlock": "false = deny the access but let the agent continue with actionable feedback, so a delegated survey over a config dir still returns the rest of its answer. true = ctx.abort(), killing the run -- right for interactive sessions, wrong for delegation.",
   "abortOnBlock": false,
   "zeroAccessPaths": [
