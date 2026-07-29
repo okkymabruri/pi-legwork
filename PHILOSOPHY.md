@@ -123,6 +123,10 @@ proves the code runs; it does not prove the answer is right.** For analysis,
 prose, or configuration there is often no oracle at all, and a passing linter
 certifies nothing that matters.
 
+**Nested subagents** are excluded for a related reason. Top-level fan-out
+already gives parallelism, and nesting costs the observability that tells you
+which model produced which claim.
+
 There is a narrow shape that passes both gates:
 
 > Delegate writes only where the check is a **command**, not a **read**.
@@ -147,5 +151,27 @@ The claims this repo makes, and the ones it refuses to:
 - **The delegate is a different model.** Identical answers on one benchmark is
   not general equivalence.
 
+Two more, learned the hard way:
+
+- **Token accounting is easy to get wrong.** Sum per-request `input + output`.
+  Do not sum a cumulative `totalTokens` field, which folds in cache and
+  reasoning counters — that inflated this project's own figures ~1.5× until it
+  was caught.
+- **macOS bash 3.2 aborts on empty array expansion under `set -u`.** Array
+  arguments need `${arr[@]+"${arr[@]}"}`. One tool profile had never run because
+  of it.
+
 A tool that overstates what it proved is worse than one that proves less, because
 you cannot tell which parts to trust.
+
+## Where this sits among similar tools
+
+Most published integrations in this space are MCP-based and write-capable. They
+exist for parallelism, so results flow back through the protocol.
+
+This one is the other kind. It sits on the caller's side and returns a pointer,
+because the goal is protecting context rather than adding workers.
+
+Note the direction, since several unrelated projects share the command's name:
+this delegates **to** pi from the caller's side. Projects called `pi-delegate`
+are generally pi *extensions* delegating **from** pi to child agents.

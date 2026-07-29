@@ -9,20 +9,40 @@ one instruction file per host, not an abstraction layer.
 | Host | File | Status |
 |---|---|---|
 | Claude Code | [`../skills/pi-delegate/SKILL.md`](../skills/pi-delegate/SKILL.md) | **Measured** — 0.23× caller tokens on a grep-heavy task |
-| Codex CLI | [`codex/AGENTS.md`](codex/AGENTS.md) | **Fires correctly**, savings unmeasured — see below |
+| Codex CLI | [`codex/AGENTS.md`](codex/AGENTS.md) | **Fires correctly; no measured saving** — see below |
 | Anything else | see below | Untested |
 
-### What the Codex test showed
+### What the Codex tests showed
 
-Codex CLI 0.145.0, given the `AGENTS.md` block and a survey task, chose to
-delegate on its own: it ran `pi-delegate -o /tmp/…`, the delegate did
-`1×find 2×grep`, and 544 bytes came back.
+Codex CLI 0.145.0 reads the block and acts on it. Across four runs it delegated
+without being told to in the prompt, chose `-p readonly` on its own, delegated
+*before* doing its own work, then spot-checked. On one run it stated its
+reasoning in the block's own terms: *"this is exactly the kind of high-churn,
+evidence-checkable survey covered by the repository's delegation rule."*
 
-So the instruction block works — Codex reaches for the tool without being told
-to in the prompt. **The economics were not tested**: the corpus was nine small
-files, which fails gate 1, and Codex spent about the same either way. That is
-the expected result at that size, and it is why the row above says *fires
-correctly* rather than *saves tokens*.
+Answers were correct every time.
+
+**It saved nothing.** Two task shapes, one run per arm, 60-file corpus:
+
+| Task | Baseline | Delegated | Ratio |
+|---|---:|---:|---|
+| Greppable survey ("which files reference X") | 27,320 | 26,231 | 0.96 |
+| Read-heavy classification ("group all 60 by stage") | 46,638 | 46,403 | 0.995 |
+
+The reasons differ, and both are the gates working rather than the tool failing:
+
+- The greppable task has **no churn to move**. Codex answered with ripgrep in
+  two tool calls. File count is not churn.
+- The classification task has churn but **irreducible output**: the answer is a
+  list of all 60 modules, so what comes back is nearly as large as the work.
+  Gate 1 fails on the output side. A follow-up run after adding an explicit
+  "cap the output shape" instruction did not improve it (52,310 tokens), which
+  is the expected result if the output genuinely cannot be reduced.
+
+**So Codex support is real but unproven as an economy.** The context benefit
+still applies — the reads happen elsewhere. Whether tokens drop depends on your
+caller's pricing and quota, and on finding tasks where the answer is genuinely
+much smaller than the work. None of the shapes tested here were.
 
 ## Any shell-capable host
 

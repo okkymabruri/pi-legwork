@@ -1,64 +1,48 @@
-# pi-legwork
+<img src="doc/banner.svg" alt="pi-legwork — Claude Code or Codex delegates research to a cheaper pi agent; the reads stay there, only a short answer returns" width="600">
 
-Use **Claude Code** or **Codex** to delegate read-only research to a cheaper
+Use **Claude Code** or **Codex** to delegate research — surveys, grep sweeps,
+git archaeology, log scans, web lookups — to a cheaper
 **[pi](https://github.com/badlogic/pi-mono) agent**.
-
-A question like *"which files reference the retry helper, and what for"* takes
-forty file reads to answer in ten rows. The answer is worth keeping. The
-thirty-nine reads are not, and they sit in Claude Code's context for the rest of
-the session.
 
 ```bash
 pi-delegate "which files under src/ reference the retry helper, and what for"
 ```
 
-The pi agent does the work in its own session and writes the full answer to a
-file. What comes back to Claude Code is a short preview and the file path.
+Answering that takes about forty file reads to produce ten rows. The pi agent
+does all forty in its own session and writes the full answer to a file. Claude
+Code gets a short preview and the path — none of the reads enter its context.
 
-**Measured on one comparison:** delegating a grep-heavy task used 0.23× as many
-caller tokens, and both runs produced identical answers. One task class, two runs
-per arm. Cost savings additionally depend on your models, pricing, and quotas.
-See [the measurement](#the-measurement).
+**Measured on one comparison:** 0.23× as many caller tokens, identical answers.
+One task class, two runs per arm — see [PHILOSOPHY.md](PHILOSOPHY.md).
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-
-> **Status:** a case study and reference implementation, not a maintained
-> product. Support is not promised.
+> A case study and reference implementation, not a maintained product.
 
 ## Install
 
-You need [pi](https://github.com/badlogic/pi-mono) on `PATH` — it is a separate,
-open-source agent CLI, and it is what actually runs the delegated work. Plus
-`jq`.
+You need [pi](https://pi.dev) on `PATH` — a separate, open-source agent CLI that
+runs the delegated work — plus `jq`.
+
+```bash
+npm install -g --ignore-scripts @earendil-works/pi-coding-agent   # or see pi.dev
+```
+
+Docs: [pi.dev quickstart](https://pi.dev/docs/latest/quickstart) ·
+repo: [badlogic/pi-mono](https://github.com/badlogic/pi-mono)
+
+Then pi-legwork itself:
 
 ```bash
 git clone https://github.com/okkymabruri/pi-legwork && cd pi-legwork
 install -m755 pi-delegate.sh ~/.local/bin/pi-delegate
 
-pi-delegate --models          # what models pi already has configured
+pi-delegate --models                       # models pi already has configured
 export PI_DELEGATE_MODEL='<provider/model>'
-pi-delegate --doctor          # checks the whole install, says what is missing
+pi-delegate --doctor                       # checks the install, says what is missing
 ```
 
-There is **no default model** — the right delegate depends on which quota you
-have spare. See [docs/PROVIDERS.md](docs/PROVIDERS.md).
+There is no default model. See [docs/PROVIDERS.md](docs/PROVIDERS.md).
 
-Optional but recommended — the guard:
-
-```bash
-cp damage-control-rules.json ~/.pi/
-# then register extensions/damage-control.ts in your pi settings
-```
-
-Read [the threat model](#the-guard-is-not-a-sandbox) before relying on it.
-
-### Wire it into your agent
-
-The command works from any shell, but your agent has to know *when* to reach for
-it. One file each:
-
-**Claude Code** — install as a plugin, which brings the skill and a setup
-command:
+**Claude Code** — install the plugin, which adds the skill and a setup command:
 
 ```
 /plugin marketplace add okkymabruri/pi-legwork
@@ -68,161 +52,45 @@ command:
 
 **Codex** — paste the block from
 [`integrations/codex/AGENTS.md`](integrations/codex/AGENTS.md) into your
-`AGENTS.md`. Given only that block, Codex chose to delegate a survey task on its
-own.
-
-**Anything else** that can run a shell command — see
-[`integrations/README.md`](integrations/README.md).
+`AGENTS.md`. Codex then delegates on its own, correctly, but no token saving has
+been measured on it — see [integrations/](integrations/README.md).
 
 ## Use
 
 ```bash
-pi-delegate "task"                       # survey, grep sweep, inventory
-pi-delegate -o /tmp/out.md "task"        # durable output path
-pi-delegate -p readonly "task"           # no bash: cannot mutate anything
-pi-delegate -p research "look up X"      # web tools, no bash/write
-pi-delegate -2 "<the whole problem>"     # independent second opinion
-pi-delegate -s audit-1 "follow-up"       # resumable session
-pi-delegate -nc "task"                   # skip the cwd's AGENTS.md/CLAUDE.md
+pi-delegate "task"                     # survey, grep sweep, inventory
+pi-delegate -o /tmp/out.md "task"      # durable output path
+pi-delegate -p readonly "task"         # no bash: cannot mutate anything
+pi-delegate -p research "look up X"    # web tools, no bash or write
+pi-delegate -2 "<the whole problem>"   # independent second opinion
 ```
 
-| Flag | |
-|---|---|
-| `-m MODEL` | override the delegate model |
-| `-f FILE` | long task text from a file |
-| `--models` | list configured models |
-| `--doctor` | check the install |
-
-Run it in the background — a call takes ~25–60s. Fan out to **6 concurrent**,
-each its own background process with its own `-o` path.
+Run it in the background; a call takes 25–60s. Six concurrent delegations is
+measured safe, each as its own process with its own `-o` path.
 
 ## When to delegate
 
-Two gates. **Both** must pass.
+Two gates, both must pass. **Churn ≫ output**: many reads, short answer.
+**The output carries its own evidence**: checkable without redoing the work.
 
-1. **Churn ≫ output.** Many reads, short answer. The answer returns either way,
-   so only the churn can be saved.
-2. **The output carries its own evidence.** It can be checked without redoing the
-   work — paths, line numbers, commit SHAs, source URLs, page numbers.
+Full table of ~18 task shapes:
+[`skills/pi-delegate/WHEN-TO-DELEGATE.md`](skills/pi-delegate/WHEN-TO-DELEGATE.md).
 
-Gate 2 is the one people miss. *"Is this analysis sound"* reads twenty files and
-returns a paragraph: great ratio, but the paragraph cannot carry what you would
-need to believe it, so checking means reading the twenty files yourself.
+## Safety
 
-**→ [`skills/pi-delegate/WHEN-TO-DELEGATE.md`](skills/pi-delegate/WHEN-TO-DELEGATE.md)** — the full
-table, ~18 task shapes with the gate each one fails.
+The default `local` profile includes `bash`, so a delegate **can write**. Use
+`-p readonly` for the enforced version. The bundled guard blocks credential
+paths but runs inside pi's own process — it is not a sandbox, and upstream pi
+has no permission system. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-**→ [`PHILOSOPHY.md`](PHILOSOPHY.md)** — why context, not money, is the scarce
-resource, and what conditions the cost saving depends on.
+## Docs
 
-**→ [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)** — diagrams of what crosses
-the context boundary and what does not.
-
-## Agent integrations
-
-The command is plain bash; any agent that can run a shell command can use it.
-What differs per host is *how the agent learns when to reach for it* — one
-instruction file each, no abstraction layer.
-
-| Host | Status |
+| | |
 |---|---|
-| [Claude Code](skills/pi-delegate/SKILL.md) | **Measured** |
-| [Codex CLI](integrations/codex/AGENTS.md) | Fires correctly; savings unmeasured |
-| [Anything shell-capable](integrations/README.md) | Untested |
-
-## The measurement
-
-Grep-heavy locate task, n=2 per arm:
-
-| | Caller tokens |
-|---|---:|
-| Direct | 257,970 |
-| Delegated | 60,453 |
-
-Ratio **0.23**, worst case 0.31, answers identical. Variance also collapsed —
-direct runs varied 67% run-to-run, delegated runs 0.6%.
-
-The decision rule was fixed *before* any data existed: delegated < 0.6 × direct
-on at least one task class, with equal answers. One task class cleared it.
-
-**Read it as one task class, n=2 — not a general claim.**
-
-## Profiles, and what "read-only" actually means
-
-| Profile | Tools | Can mutate? | Floor |
-|---|---|---|---|
-| `readonly` | `read,grep,find,ls` — no bash, no network | **No — enforced** | ~3.1k |
-| `local` (default) | `+ bash`, no network | **Yes** | ~3.1k |
-| `research` | web tools + `read`, no bash/write | No | ~4.7k |
-| `full` | everything — opt in deliberately | Yes | ~4.7k |
-
-**Read this before believing the phrase "read-only" anywhere else in this repo.**
-The default profile carries `bash`. A delegate under `local` that is asked to
-overwrite a file will do it. Verified, not theorised. Read-only under `local` is
-a property of which tasks you send, not a boundary the tool enforces.
-
-Use `-p readonly` when you want the guarantee. It is enough for surveys, greps,
-and file reads, and it costs nothing extra.
-
-`research` and `local` are split for a different reason. Fetched web content is
-untrusted input, so a page can instruct the agent it is being read by. An agent
-holding network egress *and* bash gives that instruction somewhere to land.
-Splitting removes the combination instead of policing it.
-
-## The guard is not a sandbox
-
-`extensions/damage-control.ts` denies reads of credential paths and blocks
-destructive bash patterns. It is a **policy hook inside the agent's own
-process**. Upstream is explicit:
-
-> "Pi does not include a built-in permission system for restricting filesystem,
-> process, network, or credential access. By default, it runs with the
-> permissions of the user and process that launched it."
-> — [badlogic/pi-mono](https://github.com/badlogic/pi-mono)
-
-Upstream recommends containerization for real boundaries. Anything reaching the
-filesystem without passing through a hooked tool call — a subprocess spawned by
-`bash`, most obviously — is outside the guard by construction.
-
-Proportionate for read-only surveys. It does not survive being load-bearing.
-
-## Deliberately not included
-
-**Writing to your working tree.** If the delegate returns a diff, you have to
-read the diff, so gate 1 fails. If it writes the files and reports "tests
-passed", gate 2 fails: that proves the code runs, not that the answer is right.
-For analysis or prose there is often no oracle at all.
-
-One narrow shape passes both gates: *delegate writes only where the check is a
-command, not a read.* That is a hypothesis under test here, not a feature.
-
-**Nested subagents.** Top-level fan-out already gives parallelism, and nesting
-costs the observability that tells you which model produced which claim.
-
-## Positioning
-
-Most published integrations in this space are MCP-based and write-capable. They
-exist for parallelism, so results flow back through the protocol.
-
-This one is the other kind. It sits on the caller's side and returns a pointer,
-because the goal is protecting context rather than adding workers.
-
-Note the direction, because several unrelated projects share the command's name:
-this delegates **to** pi from the caller's side. Projects called `pi-delegate`
-are generally pi *extensions* delegating **from** pi to child agents.
-
-## Known limits
-
-- One task class measured, n=2 per arm. Not a general cost reduction.
-- The delegate is a different model; identical answers on one benchmark is not
-  general equivalence.
-- Cost savings require caller/delegate quota asymmetry. Context isolation does
-  not, but has its own price in latency.
-- Token accounting is easy to get wrong: sum per-request `input + output`, not a
-  cumulative `totalTokens` field — that inflated this repo's own figures ~1.5×
-  until it was caught.
-- macOS bash 3.2 aborts on empty array expansion under `set -u`; array args need
-  `${arr[@]+"${arr[@]}"}`.
+| [PHILOSOPHY.md](PHILOSOPHY.md) | Why context is the scarce resource, the gates, the measurement, honest limits |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Diagrams: what crosses the context boundary, profiles, the guard |
+| [docs/PROVIDERS.md](docs/PROVIDERS.md) | Configuring a delegate model |
+| [integrations/](integrations/README.md) | Per-host setup; only Claude Code is measured |
 
 ## License
 
