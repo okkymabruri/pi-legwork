@@ -31,7 +31,7 @@ high-churn *and* incompressible.
 |---|---|---|
 | "Does doc X still match code Y" / stale-claim sweep | **Yes — best-proven** | Both. Many reads, small table, each claim cites file and line. A 14-row audit came back 10 sound, 1 novel-and-significant |
 | "Which files reference X, and what for" | **Yes** | Both. The paths in the answer *are* the evidence |
-| "Find every A with no matching B" (gap-finding) | **Yes** | Both. The measured 0.23× case; each hit checkable with one grep |
+| "Find every A with no matching B" (gap-finding) | **Yes** | Both. The best-measured case here; each hit checkable with one grep |
 | "When did X change and why" across git history | **Yes** | Both. Thousands of commits in, a paragraph out, commit SHAs carry the proof |
 | "Which of these 40 files touch X" (debug **search**) | **Yes**, search only | Gate 1 passes for the hunt. **Keep the diagnosis** — that is judgment |
 | "Scan these 400 log files for the pattern" | **Yes** | Both. Line numbers make it checkable |

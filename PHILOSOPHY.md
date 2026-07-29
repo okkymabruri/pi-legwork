@@ -34,8 +34,8 @@ conditions, delegating spends the plentiful one.
 
 If your caller is already cheap, you still get context isolation and lower
 variance, and you pay for it in latency and duplicated inference. That may or
-may not be worth it. **Do not inherit the 0.23× number without the conditions
-that produced it.**
+may not be worth it. **Do not inherit my numbers without the conditions that
+produced them.**
 
 Stated in order:
 
@@ -140,9 +140,10 @@ strength of one task class.
 
 The claims this repo makes, and the ones it refuses to:
 
-- **Measured**: one task class, n=2 per arm, 0.23× caller tokens, identical
-  answers. A strong existence proof for that shape of work. **Not** a general
-  cost reduction.
+- **Measured, on my own setup**: one task class, n=2 per arm, roughly a quarter
+  the caller tokens, identical answers. An existence proof for that shape of
+  work. **Not** a general cost reduction, and the raw runs are not published --
+  `benchmark/` is here so you can measure your own.
 - **The guard is a policy hook, not a sandbox.** Upstream pi states it has no
   permission system and recommends containerization. Anything reaching the
   filesystem without passing through a hooked tool call is outside the guard.

@@ -44,7 +44,7 @@ flowchart TD
 
     PR -- "readonly" --> RO["read, grep, find, ls<br/><b>cannot mutate</b>"]
     PR -- "local" --> L["+ bash<br/><b>CAN write</b>"]
-    PR -- "research" --> RS["web tools, read<br/><b>no bash / write</b>"]
+    PR -- "research" --> RS["web tools, read, mcp<br/><b>no bash / write</b>"]
     PR -- "full" --> FU["everything<br/><i>opt in deliberately</i>"]
 
     RO --> G[
@@ -75,6 +75,14 @@ the danger, not either half:
 Separately, each is bounded. Together, an injected page has something to aim at.
 Splitting removes the combination rather than policing it. `full` exists, and
 asks to be chosen on purpose.
+
+**`research` also carries `mcp`, and that grants more than it looks.** The
+adapter registers one proxy tool rather than each server's tools, so allowlisting
+`mcp` reaches every *enabled* MCP server, and the guard does not inspect calls
+made through the proxy. The fail-closed boundary is the `disabled` list in
+`~/.pi/agent/mcp.json`, not the profile. Keep that file an explicit allowlist and
+keep `hostConfigDiscovery` off: importing host configs once pulled in a
+JavaScript REPL — arbitrary code execution — into the profile that removes bash.
 
 The same split prices the call: every registered tool's schema ships on every
 request, so `local` costs ~3.1k input tokens and `research` ~4.7k.

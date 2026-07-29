@@ -8,7 +8,7 @@ one instruction file per host, not an abstraction layer.
 
 | Host | File | Status |
 |---|---|---|
-| Claude Code | [`../skills/pi-delegate/SKILL.md`](../skills/pi-delegate/SKILL.md) | **Measured** — 0.23× caller tokens on a grep-heavy task |
+| Claude Code | [`../skills/pi-delegate/SKILL.md`](../skills/pi-delegate/SKILL.md) | **Works, and saved caller tokens on grep-heavy work** — measure your own with `benchmark/` |
 | Codex CLI | [`codex/AGENTS.md`](codex/AGENTS.md) | **Fires correctly; no measured saving** — see below |
 | Anything else | see below | Untested |
 
@@ -66,8 +66,8 @@ Two separate claims, and only one of them is general:
 - **Context isolation transfers.** Any caller benefits from keeping forty file
   reads out of its own window. This is the mechanism the tool is built on.
 - **Cost reduction is conditional.** It requires your caller to be expensive or
-  quota-limited *and* your delegate to be cheap or plentiful. The measured 0.23×
-  came from a Claude Code subscription that runs out alongside a separate
+  quota-limited *and* your delegate to be cheap or plentiful. My own saving came
+  from a Claude Code subscription that runs out alongside a separate
   subscription with quota to spare.
 
 If your caller is already cheap, you get context isolation and lower variance,

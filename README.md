@@ -12,8 +12,10 @@ Answering that takes about forty file reads to produce ten rows. The pi agent
 does all forty in its own session and writes the full answer to a file. Claude
 Code gets a short preview and the path — none of the reads enter its context.
 
-**Measured on one comparison:** 0.23× as many caller tokens, identical answers.
-One task class, two runs per arm — see [PHILOSOPHY.md](PHILOSOPHY.md).
+The saving depends on your task, your models, and your quota, so the headline is
+a harness rather than a number: [`benchmark/`](benchmark/) measures caller tokens
+on both arms. Raw runs are not published — measure your own. When delegation is
+worth it at all: [PHILOSOPHY.md](PHILOSOPHY.md).
 
 > A case study and reference implementation, not a maintained product.
 
@@ -79,9 +81,18 @@ Full table of ~18 task shapes:
 ## Safety
 
 The default `local` profile includes `bash`, so a delegate **can write**. Use
-`-p readonly` for the enforced version. The bundled guard blocks credential
-paths but runs inside pi's own process — it is not a sandbox, and upstream pi
-has no permission system. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+`-p readonly` for the enforced version.
+
+The bundled guard blocks credential paths and destructive bash patterns, but it
+is **not active until you register it** in pi's settings — installing the plugin
+or copying the script does not turn it on. `/setup-pi-legwork` walks through it;
+by hand it is `extensions/damage-control.ts` plus `damage-control-rules.json` in
+`~/.pi/`.
+
+Once registered it still runs inside pi's own process — a policy hook, not a
+sandbox. Upstream pi has no permission system, and anything reaching the
+filesystem without going through a hooked tool call is outside it. See
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Docs
 

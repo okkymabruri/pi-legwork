@@ -106,6 +106,33 @@ export default function (pi: ExtensionAPI) {
 		);
 	}
 
+	/**
+	 * Does any whitespace-separated word in a bash command match a glob rule?
+	 *
+	 * isPathMatch above answers "is this resolved path forbidden" for the file
+	 * tools, which know their argument is a path. A bash command is a string:
+	 * the filename is one token among verbs, flags and pipes, so it has to be
+	 * split first and each token tested on its own.
+	 *
+	 * Only patterns containing `*` go through here; plain literals are already
+	 * covered by the substring check at the call site.
+	 */
+	function commandMatchesGlob(command: string, pattern: string): boolean {
+		if (!pattern.includes("*")) return false;
+
+		const regexBody = expandTilde(pattern)
+			.replace(/[.+^${}()|[\]\\]/g, "\\$&")
+			.replace(/\*/g, "[^\\s]*");
+		const regex = new RegExp(`^${regexBody}$`);
+
+		// Strip shell punctuation that would otherwise ride along on the token
+		// and defeat the anchors: quotes, redirects, pipes, separators.
+		return command
+			.split(/\s+/)
+			.map((tok) => tok.replace(/^["'<>|;&()]+|["'<>|;&()]+$/g, ""))
+			.some((tok) => tok.length > 0 && (regex.test(tok) || regex.test(path.basename(tok))));
+	}
+
 	function ruleCount(r: Rules): number {
 		return r.bashToolPatterns.length + r.zeroAccessPaths.length + r.readOnlyPaths.length + r.noDeletePaths.length;
 	}
@@ -248,9 +275,20 @@ export default function (pi: ExtensionAPI) {
 					}
 				}
 
+				// Substring match alone leaves every wildcard rule dead here: six of
+				// the zeroAccessPaths entries are globs (*.env, *.pem, *.key,
+				// *serviceAccount*.json, *.tfstate, *credentials*), and no command
+				// literally contains the character `*`. `cat prod-credentials.json`
+				// and `cat terraform.tfstate` both passed. The path branch above
+				// already globs via isPathMatch; bash did not.
+				//
+				// Keep includes() as well as the glob test rather than replacing it:
+				// literal entries like `.env` catch `app.env` as a substring, which
+				// the anchored glob would not. Union, so current behaviour is a
+				// subset of new behaviour and nothing that blocked before stops.
 				if (!violationReason) {
 					for (const zap of rules.zeroAccessPaths) {
-						if (command.includes(zap)) {
+						if (command.includes(zap) || commandMatchesGlob(command, zap)) {
 							violationReason = `Bash command references zero-access path: ${zap}`;
 							break;
 						}

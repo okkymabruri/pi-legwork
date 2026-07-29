@@ -1,6 +1,6 @@
 {
   "name": "pi-legwork",
-  "description": "Read-only delegation for coding agents: run high-churn work on a cheaper model and keep only the evidence.",
+  "description": "Delegation for coding agents: run high-churn work on a cheaper model and keep only the evidence.",
   "owner": {
     "name": "Okky Mabruri"
   },
@@ -8,7 +8,7 @@
     {
       "name": "pi-legwork",
       "source": "./",
-      "description": "Delegate high-churn read-only work to a cheaper agent and keep only the answer. Adds the pi-delegate skill and a /setup-pi-legwork command."
+      "description": "Delegate high-churn exploration to a cheaper agent and keep only the answer. Adds the pi-delegate skill and a /setup-pi-legwork command."
     }
   ]
 }
