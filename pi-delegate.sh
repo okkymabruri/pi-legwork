@@ -16,6 +16,7 @@
 #   pi-delegate.sh -p research "search the web for X, cite sources"
 #   pi-delegate.sh -2 "independent read on this decision: <the whole problem>"
 #   pi-delegate.sh -f task.md
+#   pi-delegate.sh -T high "task"      # reasoning effort (see PI_DELEGATE_THINKING)
 #   pi-delegate.sh -nc "task"          # don't load the cwd's AGENTS.md/CLAUDE.md
 #   pi-delegate.sh -s audit-1 "task"   # named resumable session (default: none)
 #   pi-delegate.sh --models            # what models pi actually has configured
@@ -26,6 +27,9 @@
 #   PI_DELEGATE_SO_MODEL  stronger model for -2 (second opinion)
 #   PI_DELEGATE_HEAD    lines of output echoed to stdout (default: 40)
 #   PI_DELEGATE_TIMEOUT seconds before the run is killed (default: 600)
+#   PI_DELEGATE_THINKING  reasoning effort passed to pi: off|minimal|low|medium|
+#                       high|xhigh|max. UNSET by default, and deliberately so --
+#                       see the note above THINK_ARG before you turn it on.
 
 set -uo pipefail
 
@@ -37,6 +41,7 @@ DEFAULT_MODEL="${PI_DELEGATE_MODEL:-}"
 HEAD_LINES="${PI_DELEGATE_HEAD:-40}"
 TIMEOUT="${PI_DELEGATE_TIMEOUT:-600}"
 PROFILE="${PI_DELEGATE_PROFILE:-local}"
+THINKING="${PI_DELEGATE_THINKING:-}"
 MODEL=""            # empty until -m; lets -2 pick without overriding an explicit choice
 OUTFILE=""
 TASK=""
@@ -203,6 +208,7 @@ while [ $# -gt 0 ]; do
     -o|--out)     OUTFILE="$2"; shift 2 ;;
     -f|--file)    TASK="$(cat "$2")"; shift 2 ;;
     -s|--session) SESSION_ID="$2"; shift 2 ;;
+    -T|--thinking) THINKING="$2"; shift 2 ;;
     -nc|--no-context) NO_CONTEXT=1; shift ;;
     -2|--second-opinion) SECOND_OPINION=1; shift ;;
     -h|--help)    usage 0 ;;
@@ -265,10 +271,19 @@ mkdir -p "$(dirname "$OUTFILE")"
 # delegate erases the saving: on the same task GLM returned ~60 chars and
 # MiniMax 1,498, for identical answers.
 CONTRACT="You are a delegated worker. Another agent will read your answer, so it
-pays tokens for every word you emit. Rules:
+pays tokens for every word you EMIT -- but nothing for what you work out along
+the way. Think as carefully as the task deserves; be brief only in the output.
+
+Rules:
 - Answer only what is asked. No preamble, no restatement of the task, no
   summary of your process, no offer to do more.
-- Show reasoning only where it changes the answer.
+- Take the time to be right. Checking your own answer costs the caller nothing
+  and is cheaper than a wrong answer they act on. What you must not do is
+  narrate the checking.
+- Every factual claim carries a locator, so it can be verified without redoing
+  your work: file path and line number, a commit SHA, a source URL, or a page
+  number. A claim you cannot locate is one you should not make -- say what you
+  could not establish instead.
 - If the answer is a list, emit the list. If it is one word, emit one word.
 
 TASK:
@@ -322,6 +337,22 @@ SESSION_ARG=(--no-session)
 CONTEXT_ARG=()
 [ "$NO_CONTEXT" = 1 ] && CONTEXT_ARG=(--no-context-files)
 
+# Reasoning effort is a PASS-THROUGH, unset by default, and that default is a
+# measurement rather than caution.
+#
+# `pi --models` reports thinking: yes for the omniroute aliases, but on this
+# route the flag is inert: the same prompt at --thinking off and --thinking high
+# returned reasoning=0, output=7, and identical text both times. Either the
+# openai-completions proxy does not forward a reasoning-effort parameter, or it
+# does not report the tokens back. Defaulting it on would have looked like a
+# quality improvement while changing nothing.
+#
+# It is still worth exposing, because it is a property of the ROUTE and not of
+# this script -- a direct provider, or a different alias, may honour it. Turn it
+# on only after checking that reasoning tokens actually move on your route.
+THINK_ARG=()
+[ -n "$THINKING" ] && THINK_ARG=(--thinking "$THINKING")
+
 # A guard trip during a RESEARCH run is anomalous -- nothing legitimate reads a
 # credential file while surveying the web, so it is a likely prompt-injection
 # signal and the turn should stop rather than be told "continue with the rest".
@@ -336,6 +367,7 @@ PI_OFFLINE="$PI_OFFLINE" pi --mode json -p "$CONTRACT" --model "$MODEL" \
   ${TOOLS_ARG[@]+"${TOOLS_ARG[@]}"} \
   ${SESSION_ARG[@]+"${SESSION_ARG[@]}"} \
   ${CONTEXT_ARG[@]+"${CONTEXT_ARG[@]}"} \
+  ${THINK_ARG[@]+"${THINK_ARG[@]}"} \
   >"$RAWFILE" 2>"$OUTFILE.err" &
 PI_PID=$!
 
