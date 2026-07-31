@@ -121,7 +121,18 @@ profile_tools() {
     # that removes bash. Keep that file an explicit allowlist and keep
     # hostConfigDiscovery off.
     research) echo "web_search,fetch_content,get_search_content,read,mcp" ;;
-    full)     echo "" ;;
+    # ENUMERATED, not empty. An empty string means no --tools flag, which means
+    # the child inherits every registered tool -- including anything installed
+    # later. `pi install npm:pi-subagents` would silently add subagent,
+    # subagent_wait, custom-agent, intercom and contact_supervisor to this
+    # profile, giving a delegate the power to spawn its own delegates on a
+    # boundary nobody reviewed. PHILOSOPHY.md excludes nested subagents on
+    # purpose; that exclusion has to be enforced somewhere, and this is where.
+    #
+    # Listing the tools means a genuinely new built-in has to be added here by
+    # hand. That is the intended trade: `full` loses a tool quietly rather than
+    # gaining an unreviewed one quietly.
+    full)     echo "read,grep,find,ls,bash,edit,write,web_search,source_check,fetch_content,get_search_content,mcp,parallel" ;;
     *) echo "unknown profile: $1 (want readonly|local|research|full)" >&2; exit 1 ;;
   esac
 }
