@@ -14,8 +14,12 @@
     .name { font-size: 22px; font-weight: 700; fill: #58a6ff; }
   </style>
 
-  <text x="24" y="34" class="t name">pi-legwork</text>
-  <text x="152" y="34" class="t lbl">delegate the legwork, keep the judgment</text>
+  <!-- One text element, not two. At x=24 the 22px monospace name runs to about
+       x=156, and the tagline used to start at a hard-coded x=152, so they
+       collided by a few pixels and read as "pi-legworkdelegate". Tspans space
+       themselves from the glyphs actually rendered, so this cannot drift again
+       when the font falls back. -->
+  <text x="24" y="34" class="t"><tspan class="name">pi-legwork</tspan><tspan class="lbl">: delegate the legwork, keep the judgment</tspan></text>
 
   <!-- caller -->
   <rect x="24" y="62" width="150" height="86" rx="6" class="box bcal"/>

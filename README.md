@@ -1,4 +1,4 @@
-<img src="doc/banner.svg" alt="pi-legwork — Claude Code or Codex delegates research to a cheaper pi agent; the reads stay there, only a short answer returns" width="600">
+<img src="docs/banner.svg" alt="pi-legwork — Claude Code or Codex delegates research to a cheaper pi agent; the reads stay there, only a short answer returns" width="600">
 
 Use **Claude Code** or **Codex** to delegate research — surveys, grep sweeps,
 git archaeology, log scans, web lookups — to a cheaper
