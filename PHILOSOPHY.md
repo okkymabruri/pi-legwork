@@ -141,6 +141,14 @@ certifies nothing that matters.
 already gives parallelism, and nesting costs the observability that tells you
 which model produced which claim.
 
+That exclusion is **enforced, not merely stated**. Every profile passes an
+explicit `--tools` allowlist naming exact tools, so a subagent package installed
+into the host agent later cannot join a delegation by being present. The `full`
+profile used to pass an empty string, which means no `--tools` flag, which means
+inherit whatever is registered — it now enumerates its tools for exactly this
+reason. Verify it yourself: install a subagent package, then ask a delegate to
+list its available tools under each profile.
+
 There is a narrow shape that passes both gates:
 
 > Delegate writes only where the check is a **command**, not a **read**.
@@ -154,19 +162,18 @@ strength of one task class.
 
 The claims this repo makes, and the ones it refuses to:
 
-- **Measured, on my own setup**: one task class, n=2 per arm, roughly a quarter
-  the caller tokens, identical answers. An existence proof for that shape of
-  work. **Not** a general cost reduction. Neither the raw runs nor the harness
-  are published, because both are specific to one caller's resident context and
-  one pair of quotas — build your own before trusting any ratio here.
-- **That figure is weaker than two significant digits suggest, and I would not
-  defend it to a decimal place now.** Two reasons, both found later. Its
-  attribution method summed whatever session ids were new in a time window, and
-  that window can catch an unrelated session running on the same machine — a
-  contaminated arm is invisible in the number, it just looks surprising. And a
-  later benchmark on the same rig showed 63–471% run-to-run spread, which n=2
-  cannot see through. Treat "roughly a quarter" as the shape of a result, not a
-  quantity, and re-derive it yourself before repeating it.
+- **The headline ratio this page used to quote is withdrawn.** It is not
+  restated here, in either direction, because the accounting that produced it was
+  wrong in two independent ways — see the token-accounting note below — and a
+  number is not repaired by adding caveats to it. What survives is the shape of
+  the claim: delegating a high-churn, low-output task kept the caller's context
+  clean and cost the caller less, on one task class, on one machine.
+- **No measurement is published here, and that is deliberate.** Any ratio depends
+  on the size of *your* caller's resident context and on *your* pair of quotas,
+  neither of which this repo can know. A figure lifted from someone else's setup
+  is worse than no figure, because it looks like evidence. Build the arms
+  yourself before believing any of it, and read the accounting note first — the
+  measurement is harder to get right than the tool is.
 - **Cost tracks turns more than it tracks work.** A caller re-reads its resident
   context every turn, so a delegation that saves a hundred file reads can still
   lose to one extra round of double-checking. The larger your `CLAUDE.md` and
@@ -185,10 +192,17 @@ The claims this repo makes, and the ones it refuses to:
 
 Two more, learned the hard way:
 
-- **Token accounting is easy to get wrong.** Sum per-request `input + output`.
-  Do not sum a cumulative `totalTokens` field, which folds in cache and
-  reasoning counters — that inflated this project's own figures ~1.5× until it
-  was caught.
+- **Token accounting is easy to get wrong, and this page got it wrong twice.**
+  An earlier version said to sum per-request `input + output`. That is wrong for
+  a cached caller: prompt caching moves nearly all the flow into the cache
+  fields, so `input + output` alone can be well under 1% of what a turn actually
+  cost, and a benchmark built on it measures almost nothing. Sum **all four**
+  fields — input, output, cache creation, cache read — and **deduplicate by
+  `message.id` before summing**, because a transcript writes one API response
+  once per content block and a naive sum counts it several times. The earlier
+  advice to avoid a cumulative `totalTokens` field still stands, but it was
+  about a delegate's own JSON, where the field accumulates across requests;
+  it does not transfer to a host transcript whose fields are disjoint.
 - **macOS bash 3.2 aborts on empty array expansion under `set -u`.** Array
   arguments need `${arr[@]+"${arr[@]}"}`. One tool profile had never run because
   of it.
