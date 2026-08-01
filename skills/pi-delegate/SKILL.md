@@ -13,7 +13,11 @@ context.
 pi-delegate "which files under src/ reference the retry helper, and what for"
 ```
 
-Run it with `run_in_background: true` — a call takes ~25–60s.
+Run it with `run_in_background: true` — a `local` call takes ~25–60s. **`-p research`
+is far slower** — 298s and 582s on the two measured, dominated by serial web
+fetches. Plan 5–10 minutes for research and queue other work behind it; a long
+research call is not a hang, and killing it pays the cost twice. Direction is
+clear at n=2; the quantity is not.
 
 ## Gate 0 — is this allowed to leave?
 
