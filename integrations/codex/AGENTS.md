@@ -40,6 +40,25 @@ insufficient.
 For a hard or hard-to-reverse decision, get an independent read:
 `pi-delegate -2 "<the whole problem>"` — put the entire problem in the prompt.
 
+**Trigger `-2` unprompted — do not ask first — when any of these hold:**
+
+- the decision is architectural, or hard to reverse
+- three turns have passed without converging
+- you are about to invalidate finished work
+- being wrong costs more than the call
+- the request is genuinely ambiguous and the readings diverge materially
+- the user asks what you think — "wdyt", "should I/we", "better to", "compare"
+
+State the **whole** problem: the setup, the options, your own conclusion, and
+what would change your mind. Half the context yields a confident answer to the
+wrong question — worse than not asking. Then read the `served by:` header; the
+chain falls through to weaker tiers silently, and nothing else says so.
+
+Two limits. It never sees this conversation, so **you** choose what goes in the
+prompt — its independence is bounded by your framing. And a cross-vendor model
+is not automatically stronger; treat the answer as an objection to weigh, not an
+authority to defer to.
+
 Setup: `pi-delegate --doctor`.
 <!-- pi-legwork:end -->
 
