@@ -67,8 +67,10 @@ pi-delegate -p research "look up X"    # web tools, no bash or write
 pi-delegate -2 "<the whole problem>"   # independent second opinion
 ```
 
-Run it in the background; a call takes 25–60s. Six concurrent delegations is
-measured safe, each as its own process with its own `-o` path.
+Run it in the background; a `local` call takes 25–60s. A `-p research` call is
+far slower — 298s and 582s on the two measured — because web fetches run
+serially; plan 5–10 minutes. Six concurrent delegations is measured safe, each
+as its own process with its own `-o` path.
 
 ## When to delegate
 
