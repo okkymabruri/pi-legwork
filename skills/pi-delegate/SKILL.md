@@ -19,6 +19,13 @@ fetches. Plan 5–10 minutes for research and queue other work behind it; a long
 research call is not a hang, and killing it pays the cost twice. Direction is
 clear at n=2; the quantity is not.
 
+The wrapper's own deadline follows the profile — 600s local, **1800s research**
+— so the run above is not at risk of being killed at the 10-minute mark. Two
+research runs were, before this split, and returned 0 bytes after spending 2.5M
+and 3.2M tokens. A killed run now returns whatever text had streamed, marked
+`PARTIAL` in both the header and the first line of the file; treat it as cut
+off, not as the answer.
+
 ## Gate 0 — is this allowed to leave?
 
 Before the economics: the delegate is a **different provider**, so the prompt and
