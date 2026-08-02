@@ -10,3 +10,6 @@ node_modules/
 # resident context and one quota pair, and publishing a corpus invites people to
 # quote a ratio that was never theirs.
 benchmark/
+
+# agent memory — public repo, keep local (Dropbox still syncs it)
+.claude/memory/
