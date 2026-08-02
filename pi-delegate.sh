@@ -18,6 +18,7 @@
 #   pi-delegate.sh -f task.md
 #   pi-delegate.sh -T high "task"      # reasoning effort (see PI_DELEGATE_THINKING)
 #   pi-delegate.sh -nc "task"          # don't load the cwd's AGENTS.md/CLAUDE.md
+#   pi-delegate.sh -S "task"           # load skills (opt-in; see PI_DELEGATE_SKILLS_DIR)
 #   pi-delegate.sh -s audit-1 "task"   # named resumable session (default: none)
 #   pi-delegate.sh --models            # what models pi actually has configured
 #   pi-delegate.sh --doctor            # check the install, say what is missing
@@ -26,6 +27,7 @@
 #   PI_DELEGATE_MODEL   default model, e.g. zai/glm-5.2 (see README: Providers)
 #   PI_DELEGATE_SO_MODEL  stronger model for -2 (second opinion)
 #   PI_DELEGATE_HEAD    lines of output echoed to stdout (default: 40)
+#   PI_DELEGATE_SKILLS_DIR  where -S looks for <name>/SKILL.md (default: ~/.pi/agent/skills)
 #   PI_DELEGATE_TIMEOUT seconds before the run is killed (default: 600 local,
 #                       1800 research/full -- see the TIMEOUT note below)
 #   PI_DELEGATE_THINKING  reasoning effort passed to pi: off|minimal|low|medium|
@@ -71,6 +73,9 @@ SO_MODEL="${PI_DELEGATE_SO_MODEL:-$DEFAULT_MODEL}"
 # Left ON for surveys -- repo conventions are usually what you'd have had to
 # put in the prompt anyway. Forced OFF for -2 below, and available as -nc.
 NO_CONTEXT=0
+# Skills are OPT-IN. See SKILLS_ARG below for why they are not on by default.
+WANT_SKILLS=0
+SKILLS_DIR="${PI_DELEGATE_SKILLS_DIR:-$HOME/.pi/agent/skills}"
 
 # Sessions are OFF by default, which is what the one-shot semantics already
 # implied -- but pi was saving one per cwd regardless, and ~/.pi/agent/sessions
@@ -222,6 +227,7 @@ while [ $# -gt 0 ]; do
     -s|--session) SESSION_ID="$2"; shift 2 ;;
     -T|--thinking) THINKING="$2"; shift 2 ;;
     -nc|--no-context) NO_CONTEXT=1; shift ;;
+    -S|--skills)  WANT_SKILLS=1; shift ;;
     -2|--second-opinion) SECOND_OPINION=1; shift ;;
     -h|--help)    usage 0 ;;
     --)           shift; TASK="$*"; break ;;
@@ -360,6 +366,73 @@ SESSION_ARG=(--no-session)
 CONTEXT_ARG=()
 [ "$NO_CONTEXT" = 1 ] && CONTEXT_ARG=(--no-context-files)
 
+# Skills: OFF unless -S asks for them, and that default is the economics.
+#
+# Every skill announced puts its name and description in the system prompt of
+# EVERY request in the run. The whole argument for delegating is that a request
+# costs roughly what it costs regardless of what it accomplished, so widening
+# the resident floor on all delegations to serve the few that need a skill is
+# backwards. Ask for them on the calls that need them:
+#
+#   pi-delegate -S -p readonly "using the prospera-slides skill, ..."
+#
+# WHY NOT `pi --skill`, WHICH EXISTS AND LOOKS RIGHT:
+#
+# It does not reach the model on this route. Measured with a canary skill whose
+# description carried a nonsense token, asked with -nt so the agent had no tools
+# to go find the file with:
+#
+#   pi -p -nt "what is the canary token?"                      -> NONE
+#   pi -p -nt --skill .../zz-canary/SKILL.md "same question"   -> NONE
+#
+# ~/.pi/agent/skills is not auto-discovered either: loadSkills() runs with
+# includeDefaults:false. And the obvious probe LIES — without -nt the agent
+# answers with the token every time, because `read`/`find` let it go and open
+# the file. Any check of this that leaves tools enabled proves nothing.
+#
+# So the block is assembled here and passed with --append-system-prompt, which
+# is verifiable and does what --skill was supposed to. Same contract pi's own
+# skills feature uses: names and descriptions resident, body read on demand.
+#
+# Second opinion never loads them, for the same reason it never loads project
+# context: -2 is bought for independence, and a skill is a house opinion.
+SKILLS_ARG=()
+SKILLS_COUNT=0
+SKILLS_FILE=""
+if [ "$WANT_SKILLS" = 1 ] && [ "$SECOND_OPINION" != 1 ] && [ -d "$SKILLS_DIR" ]; then
+  SKILLS_FILE="$(mktemp -t pi-delegate-skills)"
+  {
+    echo
+    echo "The following skills provide specialized instructions for specific tasks."
+    echo "Use the read tool to load a skill's file when the task matches its description."
+    echo "Resolve any relative path inside a skill against that skill's own directory."
+    echo
+    echo "<available_skills>"
+  } >"$SKILLS_FILE"
+  for _sk in "$SKILLS_DIR"/*/SKILL.md; do
+    [ -e "$_sk" ] || continue
+    # name/description out of the YAML front matter; fall back to the directory.
+    _nm="$(awk -F': *' '/^name: /{print $2; exit}' "$_sk")"
+    _ds="$(awk -F': *' '/^description: /{sub(/^description: */,""); print; exit}' "$_sk")"
+    [ -n "$_nm" ] || _nm="$(basename "$(dirname "$_sk")")"
+    {
+      echo "  <skill>"
+      echo "    <name>${_nm}</name>"
+      echo "    <description>${_ds}</description>"
+      echo "    <location>${_sk}</location>"
+      echo "  </skill>"
+    } >>"$SKILLS_FILE"
+    SKILLS_COUNT=$((SKILLS_COUNT + 1))
+  done
+  echo "</available_skills>" >>"$SKILLS_FILE"
+  if [ "$SKILLS_COUNT" -gt 0 ]; then
+    SKILLS_ARG=(--append-system-prompt "$SKILLS_FILE")
+  else
+    rm -f "$SKILLS_FILE"; SKILLS_FILE=""
+    echo "pi-delegate: -S asked for skills but none found under $SKILLS_DIR" >&2
+  fi
+fi
+
 # Reasoning effort is a PASS-THROUGH, unset by default, and that default is a
 # measurement rather than caution.
 #
@@ -390,9 +463,14 @@ PI_OFFLINE="$PI_OFFLINE" pi --mode json -p "$CONTRACT" --model "$MODEL" \
   ${TOOLS_ARG[@]+"${TOOLS_ARG[@]}"} \
   ${SESSION_ARG[@]+"${SESSION_ARG[@]}"} \
   ${CONTEXT_ARG[@]+"${CONTEXT_ARG[@]}"} \
+  ${SKILLS_ARG[@]+"${SKILLS_ARG[@]}"} \
   ${THINK_ARG[@]+"${THINK_ARG[@]}"} \
   >"$RAWFILE" 2>"$OUTFILE.err" &
 PI_PID=$!
+
+# The skills block is a temp file only because --append-system-prompt reads
+# one; nothing downstream needs it once pi has started.
+[ -n "$SKILLS_FILE" ] && rm -f "$SKILLS_FILE"
 
 # Self-terminating watchdog: polls in 1s steps and exits as soon as pi is gone.
 #
@@ -525,7 +603,7 @@ echo "--- pi-delegate ---"
 echo "profile:   $PROFILE  (tools: ${PROFILE_TOOLS:-<all>})"
 echo "requested: $MODEL"
 echo "served by: ${SERVED:-<unknown>}   tokens: ${TOKENS:-?} (ctx ${CTX:-?})"
-echo "session:   ${SESSION_ID:-<none>}   context files: $([ "$NO_CONTEXT" = 1 ] && echo "off" || echo "cwd AGENTS.md/CLAUDE.md")"
+echo "session:   ${SESSION_ID:-<none>}   context files: $([ "$NO_CONTEXT" = 1 ] && echo "off" || echo "cwd AGENTS.md/CLAUDE.md")   skills: $([ "$SKILLS_COUNT" -gt 0 ] && echo "$SKILLS_COUNT" || echo "off")"
 [ -n "$TOOLS" ] && echo "tools:     $TOOLS"
 echo "elapsed:   $((END - START))s   rc=$RC   output: ${BYTES}B / ${LINES} lines"
 [ "${DROPPED:-0}" -gt 0 ] 2>/dev/null && \

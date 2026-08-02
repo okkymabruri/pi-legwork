@@ -120,7 +120,43 @@ a question about both sides.
 | `-p readonly` | no bash: cannot mutate anything |
 | `-p research` | web tools, no bash/write |
 | `-nc` | skip the cwd's `AGENTS.md`/`CLAUDE.md` |
+| `-S` | announce the skills in `~/.pi/agent/skills` (opt-in; see below) |
 | `-s ID` | resumable session for follow-ups |
 | `-f FILE` | long task text from a file |
 | `--models` | what models are configured |
 | `--doctor` | check the install |
+
+## Skills (`-S`)
+
+Off by default. Every skill announced costs its name and description in the
+system prompt of **every** request in the run, and the whole argument for
+delegating is that a request costs what it costs regardless of what it
+accomplished. Widening the floor on all delegations to serve the few that need
+a skill is backwards. Ask on the calls that need it:
+
+```bash
+pi-delegate -S -p readonly "using the prospera-slides skill, audit gallery/ for layouts that pass only the minimum options"
+```
+
+Put a skill in `~/.pi/agent/skills/<name>/SKILL.md`, or symlink it there.
+`PI_DELEGATE_SKILLS_DIR` moves the directory. `-2` never loads them: it is
+bought for independence, and a skill is a house opinion.
+
+**Why this is assembled here rather than passed to `pi --skill`.** That flag
+exists and does not reach the model on this route. Measured with a canary skill
+whose description carried a nonsense token, asked with `-nt` so the agent had
+no tools to go find the file with:
+
+```
+pi -p -nt "what is the canary token?"                      -> NONE
+pi -p -nt --skill .../zz-canary/SKILL.md "same question"   -> NONE
+pi -p -nt --append-system-prompt block.txt "same question" -> QUOKKA7311
+```
+
+`~/.pi/agent/skills` is not auto-discovered either — `loadSkills()` runs with
+`includeDefaults: false`.
+
+**The obvious probe lies.** Without `-nt` the agent answers with the token every
+single time, `--skill` or not, because `read`/`find` let it go and open the file
+itself. Any check of this that leaves tools enabled proves nothing about what
+was in the prompt.
