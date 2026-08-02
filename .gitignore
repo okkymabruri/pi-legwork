@@ -11,5 +11,7 @@ node_modules/
 # quote a ratio that was never theirs.
 benchmark/
 
-# agent memory — public repo, keep local (Dropbox still syncs it)
-.claude/memory/
+# Agent memory and per-machine settings. Public repo, and settings.json holds
+# an absolute autoMemoryDirectory that is true on one laptop only. Dropbox
+# still syncs both. Not .claude-plugin/, which is the published plugin manifest.
+.claude/
