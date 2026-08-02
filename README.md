@@ -72,6 +72,13 @@ far slower — 298s and 582s on the two measured — because web fetches run
 serially; plan 5–10 minutes. Six concurrent delegations is measured safe, each
 as its own process with its own `-o` path.
 
+The watchdog deadline follows the profile for that reason: **600s for
+`local`/`readonly`, 1800s for `research`/`full`**, overridable with
+`PI_DELEGATE_TIMEOUT`. A single deadline was tried and two research runs died
+at 605s having already spent 2.5M and 3.2M tokens, one of them mid-sentence in
+its final answer. If a run is killed anyway, the wrapper now recovers whatever
+text had streamed and labels it `PARTIAL` rather than returning 0 bytes.
+
 ## When to delegate
 
 Two gates, both must pass. **Churn ≫ output**: many reads, short answer.

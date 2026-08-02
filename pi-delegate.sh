@@ -26,7 +26,8 @@
 #   PI_DELEGATE_MODEL   default model, e.g. zai/glm-5.2 (see README: Providers)
 #   PI_DELEGATE_SO_MODEL  stronger model for -2 (second opinion)
 #   PI_DELEGATE_HEAD    lines of output echoed to stdout (default: 40)
-#   PI_DELEGATE_TIMEOUT seconds before the run is killed (default: 600)
+#   PI_DELEGATE_TIMEOUT seconds before the run is killed (default: 600 local,
+#                       1800 research/full -- see the TIMEOUT note below)
 #   PI_DELEGATE_THINKING  reasoning effort passed to pi: off|minimal|low|medium|
 #                       high|xhigh|max. UNSET by default, and deliberately so --
 #                       see the note above THINK_ARG before you turn it on.
@@ -39,7 +40,7 @@ set -uo pipefail
 # explain. The requirement is enforced after parsing instead.
 DEFAULT_MODEL="${PI_DELEGATE_MODEL:-}"
 HEAD_LINES="${PI_DELEGATE_HEAD:-40}"
-TIMEOUT="${PI_DELEGATE_TIMEOUT:-600}"
+TIMEOUT="${PI_DELEGATE_TIMEOUT:-}"   # profile-dependent default, resolved after parsing
 PROFILE="${PI_DELEGATE_PROFILE:-local}"
 THINKING="${PI_DELEGATE_THINKING:-}"
 MODEL=""            # empty until -m; lets -2 pick without overriding an explicit choice
@@ -269,6 +270,17 @@ if [ "$SO_MODEL" != "$DEFAULT_MODEL" ] && [ "$MODEL" = "$SO_MODEL" ] && [ "$SECO
   exit 1
 fi
 
+# The timeout is a property of the PROFILE, and 600 was measured on the wrong
+# one. Local greps finish in 25-60s; research runs its fetches serially and was
+# measured at 298s and 582s -- so the same 600s ceiling that is 10x headroom for
+# a grep is a 3% margin for a survey. Two research runs died at exactly 605s
+# with rc=143 and 0B, having already spent 2.5M and 3.2M tokens; one was killed
+# mid-sentence while writing its final answer. Killing at the deadline is the
+# worst outcome available: full cost paid, nothing returned.
+if [ -z "$TIMEOUT" ]; then
+  case "$PROFILE" in research|full) TIMEOUT=1800 ;; *) TIMEOUT=600 ;; esac
+fi
+
 [ -n "$TASK" ] || { echo "no task given" >&2; usage 1; }
 command -v pi >/dev/null || { echo "pi not on PATH" >&2; exit 1; }
 
@@ -388,11 +400,18 @@ PI_PID=$!
 # subshell but NOT its child `sleep`, which then lingers as an orphan for the
 # full timeout -- every delegation would leak one stray process. Short sleeps
 # mean the worst case is a 1s orphan, and the loop reaps itself normally.
+#
+# The flag file is how a watchdog kill is told apart from any other SIGTERM --
+# a user interrupt and the parent harness reaping a backgrounded shell both
+# arrive as rc=143 too, and the header used to report all three as an
+# unexplained `STDERR: [damage-control] ...` line that named the wrong thing.
+rm -f "$OUTFILE.timeout"
 ( while [ "$TIMEOUT" -gt 0 ] 2>/dev/null; do
     kill -0 "$PI_PID" 2>/dev/null || exit 0
     sleep 1
     TIMEOUT=$((TIMEOUT - 1))
   done
+  : >"$OUTFILE.timeout"
   kill "$PI_PID" 2>/dev/null ) &
 WATCHDOG=$!
 
@@ -429,6 +448,38 @@ if [ -s "$RAWFILE" ]; then
   jqline 'select(.type=="message_end" and .message.role=="assistant")
           | [.message.content[]? | select(.type=="text") | .text] | join("")' \
     | sed '/^$/d' >"$OUTFILE" || : >"$OUTFILE"
+
+  # Salvage, fallback only: a killed run never emits the final `message_end`,
+  # so the extraction above returns 0B even when the model had already written
+  # most of its answer. The run that prompted this had 941 chars of a finished
+  # four-point list with sources, cut mid-sentence, and all of it was thrown
+  # away. `message_update` carries the CUMULATIVE partial for the message in
+  # flight, so keeping the longest partial per message reconstructs the stream.
+  #
+  # Guarded on an empty OUTFILE so a run that ended normally is byte-identical.
+  PARTIAL=0
+  if [ ! -s "$OUTFILE" ]; then
+    jqline 'if .type=="message_start" then "S\t"
+            elif (.type=="message_update" or .type=="message_end")
+                 and .message.role=="assistant"
+              then "T\t" + ([.message.content[]? | select(.type=="text") | .text]
+                            | join("") | gsub("\n"; "\u0001"))
+            else empty end' \
+    | awk '{ tag=substr($0,1,1); val=substr($0,3)
+             if (tag=="S") { n++; best[n]="" }
+             else if (length(val) > length(best[n])) best[n]=val }
+           END { for (i=1; i<=n; i++) if (length(best[i])) print best[i] }' \
+    | tr '\001' '\n' >"$OUTFILE.partial"
+    if [ -s "$OUTFILE.partial" ]; then
+      PARTIAL=1
+      { echo "[PARTIAL -- the run was killed before it finished. This is the text"
+        echo " that had already streamed; the answer is cut off, not complete.]"
+        echo
+        cat "$OUTFILE.partial"; } >"$OUTFILE"
+    fi
+    rm -f "$OUTFILE.partial"
+  fi
+
   # The model that ACTUALLY served, not the one requested. With the default model these
   # differ by design -- that difference is the quota-drain indicator.
   SERVED=$(jqline 'select(.type=="message_end" and .message.role=="assistant")
@@ -460,8 +511,12 @@ if [ -s "$RAWFILE" ]; then
   GOOD_LINES=$(jq -R 'fromjson? // empty | 1' "$RAWFILE" 2>/dev/null | wc -l | tr -d ' ')
   DROPPED=$((TOTAL_LINES - GOOD_LINES))
 else
-  : >"$OUTFILE"; SERVED=""; TOKENS=0; CTX=0; TOOLS=""; DROPPED=0
+  : >"$OUTFILE"; SERVED=""; TOKENS=0; CTX=0; TOOLS=""; DROPPED=0; PARTIAL=0
 fi
+
+TIMED_OUT=0
+[ -f "$OUTFILE.timeout" ] && TIMED_OUT=1
+rm -f "$OUTFILE.timeout"
 
 BYTES=$(wc -c <"$OUTFILE" | tr -d ' ')
 LINES=$(wc -l <"$OUTFILE" | tr -d ' ')
@@ -475,6 +530,12 @@ echo "session:   ${SESSION_ID:-<none>}   context files: $([ "$NO_CONTEXT" = 1 ] 
 echo "elapsed:   $((END - START))s   rc=$RC   output: ${BYTES}B / ${LINES} lines"
 [ "${DROPPED:-0}" -gt 0 ] 2>/dev/null && \
   echo "stream:    $DROPPED unparseable line(s) skipped -- answer may be partial"
+[ "$TIMED_OUT" = 1 ] && \
+  echo "TIMEOUT: killed at ${TIMEOUT}s by the watchdog, mid-run. Raise it with"
+[ "$TIMED_OUT" = 1 ] && \
+  echo "         PI_DELEGATE_TIMEOUT=<seconds>. The tokens were already spent."
+[ "${PARTIAL:-0}" = 1 ] && \
+  echo "PARTIAL: no final message -- recovered what had streamed. Answer is cut off."
 [ "$BYTES" = "0" ] && [ "$RC" = "0" ] && \
   echo "EMPTY:   rc=0 but no answer text. Check $RAWFILE -- this is a harness"
 [ "$BYTES" = "0" ] && [ "$RC" = "0" ] && \

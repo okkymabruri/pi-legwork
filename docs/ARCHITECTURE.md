@@ -52,8 +52,8 @@ flowchart TD
     RS --> G
     FU --> G
 
-    G --> RUN["pi --mode json -p<br/>+ watchdog (600s)"]
-    RUN --> EX["extract from JSONL:<br/>answer · served-by · tokens · tool counts"]
+    G --> RUN["pi --mode json -p<br/>+ watchdog (600s local · 1800s research)"]
+    RUN --> EX["extract from JSONL:<br/>answer · served-by · tokens · tool counts<br/><i>killed run: salvage streamed text</i>"]
     EX --> OUT["stdout: header + head<br/>disk: full answer"]
 ```
 
