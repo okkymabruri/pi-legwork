@@ -28,12 +28,16 @@
     ".mcp.json",
     "web-search.json",
     "~/.pi/web-search.json",
-    "~/.pi/agent/web-search.json"
+    "~/.pi/agent/web-search.json",
+    "~/.zshrc",
+    "~/.zshenv",
+    "~/.zprofile",
+    "~/.bashrc",
+    "~/.bash_profile",
+    "~/.profile"
   ],
   "readOnlyPaths": [
     "/etc/",
-    "~/.zshrc",
-    "~/.bashrc",
     "~/.claude/settings.json",
     "package-lock.json",
     "*.lock",
@@ -213,6 +217,7 @@
       "ask": true
     }
   ],
+  "_rcFiles": "Shell rc files moved readOnlyPaths -> zeroAccessPaths 2026-08-06. readOnlyPaths is only consulted for bash and for write/edit; read/grep/find/ls answer to zeroAccessPaths alone, so `read ~/.zshrc` was always permitted. An rc file commonly holds `export SOME_API_KEY=`, and a delegated survey has no reason to open one.",
   "_egress": "Network-egress rules added 2026-07-26. zeroAccessPaths stops a credential reaching the model; these stop project detail LEAVING the machine. Before this, 0 of 28 patterns matched any network tool.",
   "_mcpNote": "MCP config paths added 2026-07-26. brave-search-mcp carries BRAVE_API_KEY; exa and context7 are keyless. NOTE: this blocks Pi's TOOLS from reading these files -- it does NOT constrain pi-mcp-adapter itself, which loads config at extension-init, before any tool_call the guard can see.",
   "_cookieNote": "web-search.json holds pi-web-access provider keys AND the allowBrowserCookies flag that gates Chrome cookie decryption (chrome-cookies.ts: pbkdf2Sync + createDecipheriv over a copied Cookies DB). Blocking it stops the delegate reading or flipping its own browser-cookie permission. Same caveat as the MCP paths: this constrains Pi's TOOLS, not the extension's own init-time read."
