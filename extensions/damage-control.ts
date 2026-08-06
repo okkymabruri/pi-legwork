@@ -85,84 +85,181 @@ const ANTI_WORKAROUND_CONTINUE =
 	"to reach the same content -- the denial is deliberate. DO continue with the " +
 	"rest of the task, and report this specific path as blocked in your answer.";
 
+// --- pure matchers -------------------------------------------------------
+//
+// These were nested inside the extension closure, where nothing could reach
+// them. None of them touch `rules`, `pi` or `ctx`; they are lifted to module
+// scope and exported so damage-control.test.ts can drive them directly. That
+// test is the reason a rule that was both too broad AND too narrow (see
+// bashReadOnlyViolation) survived unnoticed.
+
+function expandTilde(p: string): string {
+	return p.startsWith("~") ? path.join(os.homedir(), p.slice(1)) : p;
+}
+
+function resolvePath(p: string, cwd: string): string {
+	return path.resolve(cwd, expandTilde(p));
+}
+
+// Substring search that only counts a hit when the next char is not a
+// path-word char, so `~/Desktop/YT` does not match `~/Desktop/YT_archive`.
+export function commandReferencesPath(command: string, protectedPath: string): boolean {
+	if (!protectedPath) return false;
+	let idx = command.indexOf(protectedPath);
+	while (idx >= 0) {
+		const after = command[idx + protectedPath.length];
+		if (!after || !/[A-Za-z0-9_-]/.test(after)) return true;
+		idx = command.indexOf(protectedPath, idx + 1);
+	}
+	return false;
+}
+
+export function isPathMatch(targetPath: string, pattern: string, cwd: string): boolean {
+	const resolvedPattern = expandTilde(pattern);
+
+	if (resolvedPattern.endsWith("/")) {
+		const abs = path.isAbsolute(resolvedPattern) ? resolvedPattern : path.resolve(cwd, resolvedPattern);
+		return targetPath.startsWith(abs);
+	}
+
+	const regexPattern = resolvedPattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
+	const regex = new RegExp(`^${regexPattern}$|^${regexPattern}/|/${regexPattern}$|/${regexPattern}/`);
+	const relativePath = path.relative(cwd, targetPath);
+
+	return (
+		regex.test(targetPath) ||
+		regex.test(relativePath) ||
+		targetPath.includes(resolvedPattern) ||
+		relativePath.includes(resolvedPattern)
+	);
+}
+
+/**
+ * Does any whitespace-separated word in a bash command match a glob rule?
+ *
+ * isPathMatch above answers "is this resolved path forbidden" for the file
+ * tools, which know their argument is a path. A bash command is a string:
+ * the filename is one token among verbs, flags and pipes, so it has to be
+ * split first and each token tested on its own.
+ *
+ * Only patterns containing `*` go through here; plain literals are already
+ * covered by the substring check at the call site.
+ */
+export function commandMatchesGlob(command: string, pattern: string): boolean {
+	if (!pattern.includes("*")) return false;
+
+	const regexBody = expandTilde(pattern)
+		.replace(/[.+^${}()|[\]\\]/g, "\\$&")
+		.replace(/\*/g, "[^\\s]*");
+	const regex = new RegExp(`^${regexBody}$`);
+
+	// Strip shell punctuation that would otherwise ride along on the token
+	// and defeat the anchors: quotes, redirects, pipes, separators.
+	return command
+		.split(/\s+/)
+		.map((tok) => tok.replace(/^["'<>|;&()]+|["'<>|;&()]+$/g, ""))
+		.some((tok) => tok.length > 0 && (regex.test(tok) || regex.test(path.basename(tok))));
+}
+
+// --- readOnlyPaths, bash side --------------------------------------------
+//
+// "Read-only" means reads are ALLOWED. Answering that needs two separate
+// questions -- does the command name the path, and does it try to write --
+// where the old rule asked one bad one. See bashReadOnlyViolation.
+
+// Anything that can create, overwrite, truncate or relabel a file it names.
+// Tested against the whole command, not against the path's neighbourhood:
+// `cp .git/config /tmp/x` is a read but still trips this. That residue is
+// deliberate -- narrowing it means parsing argument positions per verb.
+const WRITE_VERB =
+	/\b(rm|rmdir|mv|cp|ln|touch|truncate|shred|tee|dd|chmod|chown|chgrp|install|mkdir|unlink|patch)\b/;
+// sed/perl/ruby with -i. `sed -n 5p f` and `sed -e s/a/i/ f` must not match.
+const INPLACE_EDIT = /\b(sed|gsed|perl|ruby)\b[^|;]*\s-[A-Za-z]*i\b/;
+
+function tokenMatchesReadOnly(tok: string, rop: string): boolean {
+	const exp = expandTilde(rop);
+	if (rop.includes("*")) return commandMatchesGlob(tok, rop);
+	if (rop.endsWith("/")) return tok.startsWith(rop) || tok.startsWith(exp) || tok.includes("/" + rop);
+	return tok === rop || tok === exp || tok.endsWith("/" + rop);
+}
+
+// Does the command redirect output INTO this path? Testing the whole command
+// for `>` is what the old rule effectively did, and it matched every
+// pipeline. Only the token after a redirect operator is a write target.
+export function redirectsToPath(command: string, rop: string): boolean {
+	const re = /\d*>>?\s*([^\s;&|)>]+)/g;
+	let m: RegExpExecArray | null;
+	while ((m = re.exec(command)) !== null) {
+		// `2>&1` captures `&1`, which matches nothing. Harmless.
+		if (tokenMatchesReadOnly(m[1].replace(/^["']+|["']+$/g, ""), rop)) return true;
+	}
+	return false;
+}
+
+export function commandReferencesReadOnly(command: string, rop: string): boolean {
+	const exp = expandTilde(rop);
+	if (rop.includes("*")) return commandMatchesGlob(command, rop);
+	// Trailing-slash patterns are directory prefixes, and commandReferencesPath
+	// requires the following character NOT to be a path-word char -- which is
+	// exactly what follows a directory separator. `/etc/` against
+	// `cat /etc/hosts` fails it. So prefixes use plain substring, and only leaf
+	// paths get the word-boundary treatment that keeps `~/Desktop/YT` off
+	// `~/Desktop/YT_archive`. Do not collapse these two branches.
+	if (rop.endsWith("/")) return command.includes(rop) || command.includes(exp);
+	return commandReferencesPath(command, rop) || (exp !== rop && commandReferencesPath(command, exp));
+}
+
+/**
+ * Which readOnlyPath, if any, does this bash command look like it will WRITE?
+ * Returns the matching rule, or null.
+ *
+ * The old inline version was:
+ *
+ *   command.includes(rop) && (/[\s>|]/.test(command) || /\b(rm|mv|sed)\b/.test(command))
+ *
+ * `/[\s>|]/` is true of any command containing ONE SPACE, so the write-intent
+ * arm never rejected anything and the rule collapsed to `command.includes(rop)`.
+ * Every readOnlyPath entry behaved as zero-access for bash: `ls .git/refs`,
+ * `cat .git/HEAD`, `cat /etc/hosts` and `wc -l package-lock.json` were all
+ * denied as "may modify". (`git status`/`log`/`diff` contain no literal
+ * `.git/` and were never affected.)
+ *
+ * It was simultaneously too NARROW: substring-only, so `*.lock` could never
+ * fire -- no command contains a literal `*` -- and no tilde expansion, so
+ * `~/.zshrc` matched only when spelled that way. zeroAccessPaths got both
+ * fixes; this branch never did.
+ *
+ * Not a loosening of the file tools: readOnlyPaths is consulted for them only
+ * in the write/edit branch. read/grep/find/ls answer to zeroAccessPaths alone,
+ * so `read ~/.zshrc` already succeeded and the bash over-block protected
+ * nothing an agent could not reach another way.
+ *
+ * This errs toward permitting. `git config --local` writes .git/config with no
+ * verb and no redirect and is not caught. rm/mv are still gated by
+ * noDeletePaths, and write/edit are gated separately -- do not grow a bash
+ * parser here.
+ */
+export function bashReadOnlyViolation(command: string, readOnlyPaths: string[]): string | null {
+	for (const rop of readOnlyPaths) {
+		if (!commandReferencesReadOnly(command, rop)) continue;
+		if (WRITE_VERB.test(command) || INPLACE_EDIT.test(command) || redirectsToPath(command, rop)) return rop;
+	}
+	return null;
+}
+
+function ruleCount(r: Rules): number {
+	return r.bashToolPatterns.length + r.zeroAccessPaths.length + r.readOnlyPaths.length + r.noDeletePaths.length;
+}
+
 export default function (pi: ExtensionAPI) {
 	let rules: Rules = EMPTY;
 	// PORT: fail closed. Upstream continues with empty rules when loading fails,
 	// which silently disables protection. Here a parse failure blocks every tool
 	// call until it's fixed.
 	let loadError: string | null = null;
-
-	function expandTilde(p: string): string {
-		return p.startsWith("~") ? path.join(os.homedir(), p.slice(1)) : p;
-	}
-
-	function resolvePath(p: string, cwd: string): string {
-		return path.resolve(cwd, expandTilde(p));
-	}
-
-	// Substring search that only counts a hit when the next char is not a
-	// path-word char, so `~/Desktop/YT` does not match `~/Desktop/YT_archive`.
-	function commandReferencesPath(command: string, protectedPath: string): boolean {
-		if (!protectedPath) return false;
-		let idx = command.indexOf(protectedPath);
-		while (idx >= 0) {
-			const after = command[idx + protectedPath.length];
-			if (!after || !/[A-Za-z0-9_-]/.test(after)) return true;
-			idx = command.indexOf(protectedPath, idx + 1);
-		}
-		return false;
-	}
-
-	function isPathMatch(targetPath: string, pattern: string, cwd: string): boolean {
-		const resolvedPattern = expandTilde(pattern);
-
-		if (resolvedPattern.endsWith("/")) {
-			const abs = path.isAbsolute(resolvedPattern) ? resolvedPattern : path.resolve(cwd, resolvedPattern);
-			return targetPath.startsWith(abs);
-		}
-
-		const regexPattern = resolvedPattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
-		const regex = new RegExp(`^${regexPattern}$|^${regexPattern}/|/${regexPattern}$|/${regexPattern}/`);
-		const relativePath = path.relative(cwd, targetPath);
-
-		return (
-			regex.test(targetPath) ||
-			regex.test(relativePath) ||
-			targetPath.includes(resolvedPattern) ||
-			relativePath.includes(resolvedPattern)
-		);
-	}
-
-	/**
-	 * Does any whitespace-separated word in a bash command match a glob rule?
-	 *
-	 * isPathMatch above answers "is this resolved path forbidden" for the file
-	 * tools, which know their argument is a path. A bash command is a string:
-	 * the filename is one token among verbs, flags and pipes, so it has to be
-	 * split first and each token tested on its own.
-	 *
-	 * Only patterns containing `*` go through here; plain literals are already
-	 * covered by the substring check at the call site.
-	 */
-	function commandMatchesGlob(command: string, pattern: string): boolean {
-		if (!pattern.includes("*")) return false;
-
-		const regexBody = expandTilde(pattern)
-			.replace(/[.+^${}()|[\]\\]/g, "\\$&")
-			.replace(/\*/g, "[^\\s]*");
-		const regex = new RegExp(`^${regexBody}$`);
-
-		// Strip shell punctuation that would otherwise ride along on the token
-		// and defeat the anchors: quotes, redirects, pipes, separators.
-		return command
-			.split(/\s+/)
-			.map((tok) => tok.replace(/^["'<>|;&()]+|["'<>|;&()]+$/g, ""))
-			.some((tok) => tok.length > 0 && (regex.test(tok) || regex.test(path.basename(tok))));
-	}
-
-	function ruleCount(r: Rules): number {
-		return r.bashToolPatterns.length + r.zeroAccessPaths.length + r.readOnlyPaths.length + r.noDeletePaths.length;
-	}
+	// Fail-closed used to be SILENT to the caller. Announce it once per run --
+	// see the comment on the tool_call branch that reads this.
+	let loadErrorAnnounced = false;
 
 	// PORT: guard on ctx.mode, NOT ctx.hasUI.
 	//
@@ -182,6 +279,7 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	pi.on("session_start", async (_event, ctx) => {
+		loadErrorAnnounced = false;
 		const candidates = [
 			path.join(ctx.cwd, ".pi", RULES_BASENAME),
 			path.join(ctx.cwd, "code-assistant", "pi", RULES_BASENAME),
@@ -223,6 +321,18 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("tool_call", async (event, ctx) => {
 		if (loadError) {
+			// This branch used to write NOTHING. The session_start handler does say
+			// something, but its text is "BLOCKING ALL TOOL CALLS" -- which does not
+			// contain the literal `Blocked` that pi-delegate.sh greps for. So a run
+			// with a missing or corrupt rules file denied every tool call, exited 0,
+			// and returned an empty answer with no GUARD: line: indistinguishable
+			// from the model finding nothing. Announce once, with wording the grep
+			// matches. Once, not per call: a refused agent retries, and one line per
+			// retry buries the reason it is being refused.
+			if (!loadErrorAnnounced) {
+				loadErrorAnnounced = true;
+				say(ctx, `🛑 Blocked ${event.toolName} and every later tool call: rules did not load (${loadError})`);
+			}
 			return { block: true, reason: `🛑 BLOCKED: damage-control rules did not load (${loadError}). Fix the rules file before running tools.${ANTI_WORKAROUND_ABORT}` };
 		}
 
@@ -322,12 +432,15 @@ export default function (pi: ExtensionAPI) {
 					}
 				}
 
+				// A read is not a write, and this rule used to deny both. The whole
+				// story, and what the old one-liner actually evaluated to, is on
+				// bashReadOnlyViolation at module scope.
 				if (!violationReason) {
-					for (const rop of rules.readOnlyPaths) {
-						if (command.includes(rop) && (/[\s>|]/.test(command) || /\b(rm|mv|sed)\b/.test(command))) {
-							violationReason = `Bash command may modify read-only path: ${rop}`;
-							break;
-						}
+					const rop = bashReadOnlyViolation(command, rules.readOnlyPaths);
+					if (rop) {
+						violationReason =
+							`Bash command may modify read-only path: ${rop} -- reading it is allowed; ` +
+							`re-issue without the writing command if reading was the intent`;
 					}
 				}
 
