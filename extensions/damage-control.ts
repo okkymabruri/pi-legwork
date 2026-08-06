@@ -168,13 +168,62 @@ export function commandMatchesGlob(command: string, pattern: string): boolean {
 // where the old rule asked one bad one. See bashReadOnlyViolation.
 
 // Anything that can create, overwrite, truncate or relabel a file it names.
-// Tested against the whole command, not against the path's neighbourhood:
-// `cp .git/config /tmp/x` is a read but still trips this. That residue is
-// deliberate -- narrowing it means parsing argument positions per verb.
-const WRITE_VERB =
-	/\b(rm|rmdir|mv|cp|ln|touch|truncate|shred|tee|dd|chmod|chown|chgrp|install|mkdir|unlink|patch)\b/;
-// sed/perl/ruby with -i. `sed -n 5p f` and `sed -e s/a/i/ f` must not match.
-const INPLACE_EDIT = /\b(sed|gsed|perl|ruby)\b[^|;]*\s-[A-Za-z]*i\b/;
+// Matched against a segment's COMMAND WORD only, never the whole command --
+// see segmentWrites for why that distinction is the whole ballgame.
+const WRITE_VERBS = new Set([
+	"rm", "rmdir", "mv", "cp", "ln", "touch", "truncate", "shred", "tee", "dd",
+	"chmod", "chown", "chgrp", "install", "mkdir", "unlink", "patch",
+]);
+const INPLACE_TOOLS = new Set(["sed", "gsed", "perl", "ruby"]);
+// An in-place flag as an argv TOKEN: -i, -pi, -i.bak, --in-place. Not a regex
+// over the command string, which matched ` -i ` inside a quoted sed script.
+const INPLACE_FLAG = /^(--in-place|-[A-Za-z]*i)/;
+// Env assignments and wrappers to skip when looking for the command word, so
+// `FOO=1 sudo rm x` still reads as `rm`.
+const NOT_THE_VERB = /^([A-Za-z_][A-Za-z0-9_]*=|(sudo|command|env|nohup|time|exec)$)/;
+
+/**
+ * Split a command into pipeline segments: `|`, `||`, `&&`, `;`, newline.
+ *
+ * `>|` is normalised to `>` first, or the noclobber-override redirect would
+ * split a segment in half.
+ */
+function segments(command: string): string[] {
+	return command.replace(/>\|/g, ">").split(/\|\||&&|[|;\n]/);
+}
+
+// Blank out quoted spans before looking for flags: in `sed -nE '/ -i /p' f`
+// the ` -i ` is part of the sed script, not an option, and a naive whitespace
+// split hands it back as its own token.
+function stripQuoted(s: string): string {
+	return s.replace(/'[^']*'|"[^"]*"/g, " ");
+}
+
+function tokens(segment: string): string[] {
+	return stripQuoted(segment).trim().split(/\s+/).filter((t) => t.length > 0);
+}
+
+/**
+ * Does this ONE pipeline segment run a writing command?
+ *
+ * The verb must be the segment's command word. Testing the whole command
+ * string instead -- which is what shipped first -- blocks `git log --patch`
+ * (matches `patch`), `grep -n install ~/.claude/settings.json` (matches
+ * `install`, grep's search term) and `grep -R sed -i /etc/`. All three are
+ * ordinary read-only work, and all three were denied.
+ */
+function segmentWrites(segment: string): boolean {
+	const toks = tokens(segment);
+	let i = 0;
+	while (i < toks.length && NOT_THE_VERB.test(toks[i])) i++;
+	if (i >= toks.length) return false;
+
+	const verb = path.basename(toks[i].replace(/^["']+|["']+$/g, ""));
+	if (WRITE_VERBS.has(verb)) return true;
+	// sed/perl/ruby only write with an in-place flag, and only their OWN flags
+	// count: `sed -nE '/ -i /p' f` is a read.
+	return INPLACE_TOOLS.has(verb) && toks.slice(i + 1).some((t) => INPLACE_FLAG.test(t));
+}
 
 function tokenMatchesReadOnly(tok: string, rop: string): boolean {
 	const exp = expandTilde(rop);
@@ -187,10 +236,12 @@ function tokenMatchesReadOnly(tok: string, rop: string): boolean {
 // for `>` is what the old rule effectively did, and it matched every
 // pipeline. Only the token after a redirect operator is a write target.
 export function redirectsToPath(command: string, rop: string): boolean {
-	const re = /\d*>>?\s*([^\s;&|)>]+)/g;
+	// `[|&]?` covers the noclobber override `>|` and the both-streams form
+	// `>&file`; without it the char class rejected the target and both slipped.
+	const re = /\d*>>?[|&]?\s*([^\s;&|)>]+)/g;
 	let m: RegExpExecArray | null;
 	while ((m = re.exec(command)) !== null) {
-		// `2>&1` captures `&1`, which matches nothing. Harmless.
+		// `2>&1` captures `1`, which matches nothing. Harmless.
 		if (tokenMatchesReadOnly(m[1].replace(/^["']+|["']+$/g, ""), rop)) return true;
 	}
 	return false;
@@ -234,15 +285,30 @@ export function commandReferencesReadOnly(command: string, rop: string): boolean
  * so `read ~/.zshrc` already succeeded and the bash over-block protected
  * nothing an agent could not reach another way.
  *
- * This errs toward permitting. `git config --local` writes .git/config with no
- * verb and no redirect and is not caught. rm/mv are still gated by
- * noDeletePaths, and write/edit are gated separately -- do not grow a bash
- * parser here.
+ * The verb and the path must be in the SAME pipeline segment. Without that,
+ * `cat package-lock.json | tee /tmp/copy` blocks: the path is read in segment
+ * one and the write lands in segment two, on a different file entirely.
+ *
+ * This errs toward permitting, which is the correct direction for a hook that
+ * is not a sandbox. Known and deliberate misses: `git config --local` writes
+ * .git/config without naming it; so do `npm install` (package-lock.json),
+ * `uv sync` (uv.lock) and git porcelain generally. Anything routed through a
+ * variable, a command substitution or a subprocess is outside the hook by
+ * construction. rm/mv are still gated by noDeletePaths, and write/edit are
+ * gated separately -- do not grow a bash parser here.
+ *
+ * So this catches LITERAL DIRECT WRITES only. It is a guard against the model
+ * making a mistake, not against anyone determined.
  */
 export function bashReadOnlyViolation(command: string, readOnlyPaths: string[]): string | null {
+	const segs = segments(command);
 	for (const rop of readOnlyPaths) {
-		if (!commandReferencesReadOnly(command, rop)) continue;
-		if (WRITE_VERB.test(command) || INPLACE_EDIT.test(command) || redirectsToPath(command, rop)) return rop;
+		// Redirects are scanned across the whole command: the operator and its
+		// target are always adjacent, so segmenting buys nothing here.
+		if (redirectsToPath(command, rop)) return rop;
+		for (const seg of segs) {
+			if (commandReferencesReadOnly(seg, rop) && segmentWrites(seg)) return rop;
+		}
 	}
 	return null;
 }

@@ -505,12 +505,22 @@ END=$(date +%s)
 #
 # NOT `grep -c ... || echo 0`: grep prints its count AND exits 1 when the count
 # is zero, so the fallback fires too and the variable becomes "0\n0".
-# `Blocked\|BLOCKING`: the second catches the session_start message for a
-# missing or corrupt rules file, which names the paths it looked in. Matching
-# only `Blocked` let a run where the guard refused EVERY tool call print no
-# GUARD: line at all.
-GUARD=$(grep -c 'damage-control.*\(Blocked\|BLOCKING\)' "$OUTFILE.err" 2>/dev/null) || true
+# Two DIFFERENT conditions, counted separately.
+#
+# GUARD counts denials -- one `Blocked <tool>:` line per denial. Do not widen
+# this to also match BLOCKING: the session_start message for a missing rules
+# file says "BLOCKING ALL TOOL CALLS", and matching both made a run with ONE
+# denied call report "2 block(s)", and a run with NO denied calls at all report
+# "1 block(s)" for something nothing was denied by.
+GUARD=$(grep -c 'damage-control.*Blocked' "$OUTFILE.err" 2>/dev/null) || true
 GUARD=${GUARD:-0}
+
+# RULES is the misconfiguration, not a denial: the rules file was missing or
+# unparseable, so every tool call was refused regardless of what it asked for.
+# Reported on its own line because "the guard denied a path" and "the guard
+# could not load and denied everything" need different fixes from the caller.
+RULES=$(grep -c 'damage-control.*BLOCKING ALL TOOL CALLS' "$OUTFILE.err" 2>/dev/null) || true
+RULES=${RULES:-0}
 
 # Extract the answer text from the JSONL stream into OUTFILE, so callers and
 # the head-preview below behave exactly as they did under `pi -p`.
@@ -625,7 +635,11 @@ echo "elapsed:   $((END - START))s   rc=$RC   output: ${BYTES}B / ${LINES} lines
 echo "file:      $OUTFILE"
 [ "$GUARD" != "0" ] && {
   echo "GUARD:   $GUARD block(s) -- safety hook denied access:"
-  grep 'damage-control.*\(Blocked\|BLOCKING\)' "$OUTFILE.err" | sed 's/^/         /'
+  grep 'damage-control.*Blocked' "$OUTFILE.err" | sed 's/^/         /'
+}
+[ "$RULES" != "0" ] && {
+  echo "RULES:   damage-control did not load -- EVERY tool call was refused:"
+  grep 'damage-control.*BLOCKING ALL TOOL CALLS' "$OUTFILE.err" | sed 's/^/         /'
 }
 [ "$RC" != "0" ] && echo "STDERR:  $(tail -3 "$OUTFILE.err" | tr '\n' ' ')"
 echo "---"
