@@ -83,6 +83,50 @@ const CASES: [string, string | null][] = [
 	// --- sed without -i is a read ------------------------------------------
 	["sed -n 5p uv.lock", null],
 	["sed -e s/a/i/ .git/config", null],
+
+	// --- a write verb must be the segment's COMMAND WORD --------------------
+	// All six shipped as false positives in the first pass, found by an
+	// adversarial review and verified against the live matcher before fixing.
+	// The verb was matched against the whole command string, so a flag name or
+	// a grep search term counted as a write.
+	["git log --patch -- package-lock.json", null], // `patch` is a flag
+	["git diff -- package-lock.json | git patch-id", null], // `patch` in a subcommand
+	["grep -n install ~/.claude/settings.json", null], // `install` is the pattern
+	["grep -R install /etc/", null],
+	["grep -rn install .git/", null],
+	["grep -R sed -i /etc/", null], // grep is the command word, not sed
+	["sed -nE '/ -i /p' package-lock.json", null], // ` -i ` is inside the script
+
+	// --- verb and path must share a pipeline segment ------------------------
+	["cat package-lock.json | tee /tmp/package-lock.copy", null],
+	["find . -name \\*.lock -print | tee /tmp/locks", null],
+	["cat uv.lock | rm /tmp/other", null],
+	// ...but a write in the same segment still blocks
+	["cat /tmp/x | tee package-lock.json", "package-lock.json"],
+	["ls | rm uv.lock", "*.lock"],
+
+	// --- bypasses closed ----------------------------------------------------
+	["printf x >| /etc/hosts", "/etc/"], // noclobber override
+	["printf x >&/etc/hosts", "/etc/"], // both-streams redirect
+	["sed --in-place 's/^/#/' /etc/hosts", "/etc/"], // GNU long form
+	["perl -i.bak -pe s/a/b/ uv.lock", "*.lock"],
+	["FOO=1 sudo rm .git/config", ".git/"], // env + wrapper before the verb
+
+	// --- ACCEPTED GAPS: these must stay null ---------------------------------
+	// Not oversights. Closing them needs a shell to resolve the value, and the
+	// hook is not a sandbox -- see the note on bashReadOnlyViolation.
+	['printf x > "$HOME/.claude/settings.json"', null], // variable
+	["p=\"$(printf '/etc/hosts')\"; printf x > \"$p\"", null], // substitution
+	["printf x > .git'/'config", null], // quoting splits the literal
+	["git config --local pi.x 1", null], // git writes .git/ without naming it
+	["tar -cf uv.lock /etc/hosts", null], // `tar -tf uv.lock` is a read
+	["unzip -q -o archive.zip -d /etc/", null],
+
+	// --- ACCEPTED: a bare filename rule is basename-scoped -------------------
+	// `package-lock.json` names any file so called, which is also how
+	// isPathMatch treats it for the file tools. Desyncing the two would be
+	// worse than this false positive.
+	["cat package-lock.json > /tmp/package-lock.json", "package-lock.json"],
 ];
 
 let failed = 0;

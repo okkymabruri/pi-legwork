@@ -109,14 +109,39 @@ proportionate for surveys run under `readonly`, where the realistic failure is a
 path being read and pattern-matching catches it. It does not survive being
 load-bearing.
 
-Two properties of the denied edge are worth stating, because both were once
-wrong. A **missing or unparseable rules file denies every tool call** (fail
-closed) and now says so on the denied edge: before 2026-08-06 it denied
-silently, and the run returned rc=0 with an empty answer and no `GUARD:` line,
-which is indistinguishable from the model finding nothing. And `readOnlyPaths`
-denies **writes only** — reads of those paths pass. The bash-side check for it
-used to deny both, so `ls .git/refs` and `cat /etc/hosts` were refused as "may
-modify". `extensions/damage-control.test.ts` pins both behaviours:
+### What `readOnlyPaths` actually protects, in bash
+
+**Literal direct writes, and nothing else.** Say it that way rather than
+"these paths are read-only", because the second reading is false and the false
+assurance is worse than any single gap. `npm install` rewrites
+`package-lock.json`, `uv sync` rewrites `uv.lock`, and git porcelain rewrites
+`.git/` — none of them name the path, so none can ever match. Anything routed
+through a variable, a command substitution or a subprocess is outside the hook
+by construction, same as the dotted arrow above.
+
+What it does buy is the accidental `> uv.lock`, `sed -i`, `rm` and
+`cp x package-lock.json`. That is a guard against the model making a mistake,
+not against anyone determined, and it is priced accordingly: it errs toward
+permitting, because a false positive stops real work and a false negative
+costs a protection that was never enforceable.
+
+Reads of those paths pass. Two rounds of getting that wrong:
+
+- The first check was `command.includes(rop)` in all but name, so `ls .git/refs`
+  and `cat /etc/hosts` were refused as "may modify".
+- The replacement matched the write verb against the **whole command**, so
+  `git log --patch -- package-lock.json` matched `patch` and
+  `grep -n install ~/.claude/settings.json` matched `install`. The verb now has
+  to be a segment's command word, and the path has to be in that same segment.
+
+The denied edge reports two different conditions on two different lines.
+`GUARD:` counts denials. `RULES:` means the rules file was missing or
+unparseable, so every tool call was refused regardless of what it asked —
+before 2026-08-06 that case denied silently and returned rc=0 with no header
+line at all, which reads exactly like the model finding nothing.
+
+`extensions/damage-control.test.ts` pins all of it, including the gaps that are
+deliberately left open:
 
 ```
 node --experimental-strip-types extensions/damage-control.test.ts
