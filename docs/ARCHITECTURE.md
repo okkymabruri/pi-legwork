@@ -109,6 +109,19 @@ proportionate for surveys run under `readonly`, where the realistic failure is a
 path being read and pattern-matching catches it. It does not survive being
 load-bearing.
 
+Two properties of the denied edge are worth stating, because both were once
+wrong. A **missing or unparseable rules file denies every tool call** (fail
+closed) and now says so on the denied edge: before 2026-08-06 it denied
+silently, and the run returned rc=0 with an empty answer and no `GUARD:` line,
+which is indistinguishable from the model finding nothing. And `readOnlyPaths`
+denies **writes only** — reads of those paths pass. The bash-side check for it
+used to deny both, so `ls .git/refs` and `cat /etc/hosts` were refused as "may
+modify". `extensions/damage-control.test.ts` pins both behaviours:
+
+```
+node --experimental-strip-types extensions/damage-control.test.ts
+```
+
 ## Fan-out
 
 ```mermaid

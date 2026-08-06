@@ -103,6 +103,13 @@ sandbox. Upstream pi has no permission system, and anything reaching the
 filesystem without going through a hooked tool call is outside it. See
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
+`readOnlyPaths` denies **writes only**; reads of those paths pass. The matcher
+is pinned by a table test with no runner dependency:
+
+```bash
+node --experimental-strip-types extensions/damage-control.test.ts
+```
+
 ## Docs
 
 | | |

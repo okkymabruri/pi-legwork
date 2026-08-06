@@ -505,7 +505,11 @@ END=$(date +%s)
 #
 # NOT `grep -c ... || echo 0`: grep prints its count AND exits 1 when the count
 # is zero, so the fallback fires too and the variable becomes "0\n0".
-GUARD=$(grep -c 'damage-control.*Blocked' "$OUTFILE.err" 2>/dev/null) || true
+# `Blocked\|BLOCKING`: the second catches the session_start message for a
+# missing or corrupt rules file, which names the paths it looked in. Matching
+# only `Blocked` let a run where the guard refused EVERY tool call print no
+# GUARD: line at all.
+GUARD=$(grep -c 'damage-control.*\(Blocked\|BLOCKING\)' "$OUTFILE.err" 2>/dev/null) || true
 GUARD=${GUARD:-0}
 
 # Extract the answer text from the JSONL stream into OUTFILE, so callers and
@@ -621,7 +625,7 @@ echo "elapsed:   $((END - START))s   rc=$RC   output: ${BYTES}B / ${LINES} lines
 echo "file:      $OUTFILE"
 [ "$GUARD" != "0" ] && {
   echo "GUARD:   $GUARD block(s) -- safety hook denied access:"
-  grep 'damage-control.*Blocked' "$OUTFILE.err" | sed 's/^/         /'
+  grep 'damage-control.*\(Blocked\|BLOCKING\)' "$OUTFILE.err" | sed 's/^/         /'
 }
 [ "$RC" != "0" ] && echo "STDERR:  $(tail -3 "$OUTFILE.err" | tr '\n' ' ')"
 echo "---"
