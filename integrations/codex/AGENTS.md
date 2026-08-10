@@ -1,4 +1,4 @@
-# pi-delegate — snippet for Codex CLI
+# pi-delegate: snippet for Codex CLI
 
 Paste this block into your `AGENTS.md`. Codex reads that file as standing
 instructions, so keep it short: it is resident context on every request.
@@ -14,14 +14,14 @@ pi-delegate -o /tmp/out.md "which files under src/ reference the retry helper, a
 ```
 
 First: the delegate is a **different provider**, so anything in the prompt or
-read by it crosses that boundary — never delegate confidential work. The default
+read by it crosses that boundary. Never delegate confidential work. The default
 profile includes `bash` and *can* write; use `-p readonly` when the task only
 needs reading.
 
 Then delegate when **both** hold:
 
-1. **Churn ≫ output** — many reads or greps, short answer.
-2. **The output carries its own evidence** — checkable without redoing the work
+1. **Churn ≫ output**: many reads or greps, short answer.
+2. **The output carries its own evidence**: checkable without redoing the work
    (paths, line numbers, commit SHAs, source URLs, page numbers).
 
 Good shapes: codebase surveys, "which files reference X", gap-finding,
@@ -33,29 +33,29 @@ call whose evidence is the reading itself ("is this analysis sound").
 The delegate sees only the prompt and the working directory's context files, so
 name exact paths and **cap the output shape**: "one line per file", "a markdown
 table", "just the list". Asking for a full inventory with evidence for every
-item defeats the point — the answer comes back as large as the work, and the
+item defeats the point: the answer comes back as large as the work, and the
 saving disappears. Read the head; open the file only when the head is
 insufficient.
 
 For a hard or hard-to-reverse decision, get an independent read:
-`pi-delegate -2 "<the whole problem>"` — put the entire problem in the prompt.
+`pi-delegate -2 "<the whole problem>"`. Put the entire problem in the prompt.
 
-**Trigger `-2` unprompted — do not ask first — when any of these hold:**
+**Trigger `-2` unprompted, and do not ask first, when any of these hold:**
 
 - the decision is architectural, or hard to reverse
 - three turns have passed without converging
 - you are about to invalidate finished work
 - being wrong costs more than the call
 - the request is genuinely ambiguous and the readings diverge materially
-- the user asks what you think — "wdyt", "should I/we", "better to", "compare"
+- the user asks what you think: "wdyt", "should I/we", "better to", "compare"
 
 State the **whole** problem: the setup, the options, your own conclusion, and
 what would change your mind. Half the context yields a confident answer to the
-wrong question — worse than not asking. Then read the `served by:` header; the
+wrong question, worse than not asking. Then read the `served by:` header; the
 chain falls through to weaker tiers silently, and nothing else says so.
 
 Two limits. It never sees this conversation, so **you** choose what goes in the
-prompt — its independence is bounded by your framing. And a cross-vendor model
+prompt: its independence is bounded by your framing. And a cross-vendor model
 is not automatically stronger; treat the answer as an objection to weigh, not an
 authority to defer to.
 
@@ -65,11 +65,11 @@ Setup: `pi-delegate --doctor`.
 ## Notes
 
 - **Verified on Codex CLI 0.145.0**: given this block and a survey task, Codex
-  chose to delegate on its own — no prompting toward the tool. The savings were
+  chose to delegate on its own, with no prompting toward the tool. The savings were
   not measured; the test corpus was small enough to fail gate 1.
 - Only the Claude Code integration has **measured** savings. The context benefit
   applies to any caller; the cost benefit depends on your caller being expensive
   or quota-limited while the delegate is cheap.
 - Codex also supports `hooks.json` (`PreToolUse`, `PostToolUse`). A hook is not
-  required for this — the instruction block above is enough, and a hook would
+  required for this: the instruction block above is enough, and a hook would
   add a failure mode without adding capability.
