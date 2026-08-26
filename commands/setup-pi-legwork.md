@@ -28,20 +28,21 @@ command -v pi-delegate || echo "~/.local/bin is not on PATH"
 If `~/.local/bin` is not on `PATH`, tell the user the line to add to their shell
 profile rather than editing the profile yourself.
 
-## 3. Install the guard
+## 3. Install the project-local guard
 
 ```bash
-cp -n "${CLAUDE_PLUGIN_ROOT}/damage-control-rules.json" ~/.pi/damage-control-rules.json
+"${CLAUDE_PLUGIN_ROOT}/install.sh"
 ```
 
-`-n` so an existing customised rules file is never overwritten. If the file was
-already there, say so.
+This creates `${CLAUDE_PLUGIN_ROOT}/.pi/extensions/damage-control.ts`, removes
+legacy global links that point into this checkout, and verifies the tests. Do
+not install the extension or rules under `~/.pi`: the guard is intentionally
+scoped to pi-legwork. `pi-delegate` loads this trusted extension explicitly so
+delegation from another working directory is still protected.
 
-Then tell the user to register `${CLAUDE_PLUGIN_ROOT}/extensions/damage-control.ts`
-in their pi settings, and state plainly what it is: a policy hook inside pi's
-process that blocks credential-path reads and destructive bash patterns. It is
-**not** a sandbox — upstream pi has no permission system. Do not describe it as
-one.
+State plainly what it is: a policy hook inside pi's process that blocks
+credential-path reads and destructive bash patterns. It is **not** a sandbox —
+upstream pi has no permission system. Do not describe it as one.
 
 ## 4. Pick a delegate model
 

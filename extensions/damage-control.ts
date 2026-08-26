@@ -45,6 +45,22 @@ import * as os from "node:os";
 // no signal. JSON needs no dep and cannot fail that way. A guard that silently
 // doesn't load is worse than no guard.
 const RULES_BASENAME = "damage-control-rules.json";
+const PROJECT_MARKERS = ["pi-delegate.sh", "PHILOSOPHY.md", path.join("extensions", "damage-control.ts")];
+
+/** Resolve the enclosing pi-legwork checkout. Wrapper loading must supply its trusted root explicitly. */
+export function findPiLegworkRoot(cwd: string, explicitRoot?: string): string | null {
+	if (explicitRoot) {
+		const resolved = path.resolve(explicitRoot);
+		return PROJECT_MARKERS.every((marker) => fs.existsSync(path.join(resolved, marker))) ? resolved : null;
+	}
+	let cursor = path.resolve(cwd);
+	while (true) {
+		if (PROJECT_MARKERS.every((marker) => fs.existsSync(path.join(cursor, marker)))) return cursor;
+		const parent = path.dirname(cursor);
+		if (parent === cursor) return null;
+		cursor = parent;
+	}
+}
 
 interface Rule {
 	pattern: string;
@@ -319,6 +335,7 @@ function ruleCount(r: Rules): number {
 
 export default function (pi: ExtensionAPI) {
 	let rules: Rules = EMPTY;
+	let active = false;
 	// PORT: fail closed. Upstream continues with empty rules when loading fails,
 	// which silently disables protection. Here a parse failure blocks every tool
 	// call until it's fixed.
@@ -346,26 +363,51 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx) => {
 		loadErrorAnnounced = false;
-		const candidates = [
-			path.join(ctx.cwd, ".pi", RULES_BASENAME),
-			path.join(ctx.cwd, "code-assistant", "pi", RULES_BASENAME),
-			path.join(os.homedir(), ".pi", RULES_BASENAME),
-		];
-		const rulesPath = candidates.find((p) => fs.existsSync(p)) ?? null;
+		const configuredRoot = process.env.PI_LEGWORK_PROJECT_ROOT?.trim();
+		const projectRoot = findPiLegworkRoot(ctx.cwd, configuredRoot);
+		if (configuredRoot && projectRoot === null) {
+			active = true;
+			rules = EMPTY;
+			loadError = `PI_LEGWORK_PROJECT_ROOT does not identify a valid pi-legwork checkout: ${configuredRoot}`;
+			say(ctx, `🛡️ Damage-Control: ${loadError} -- BLOCKING ALL TOOL CALLS`);
+			return;
+		}
+		active = projectRoot !== null;
+		if (!active) {
+			rules = EMPTY;
+			loadError = null;
+			return;
+		}
+		const rulesPath = path.join(projectRoot, RULES_BASENAME);
 
-		if (!rulesPath) {
-			loadError = `no ${RULES_BASENAME} found (looked in: ${candidates.join(", ")})`;
+		if (!fs.existsSync(rulesPath)) {
+			loadError = `no ${RULES_BASENAME} found at the pi-legwork project root: ${projectRoot}`;
 			say(ctx, `🛡️ Damage-Control: ${loadError} -- BLOCKING ALL TOOL CALLS`);
 			return;
 		}
 
 		try {
-			const loaded = JSON.parse(fs.readFileSync(rulesPath, "utf8")) as Partial<Rules>;
+			const parsed: unknown = JSON.parse(fs.readFileSync(rulesPath, "utf8"));
+			if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error("rules must be a JSON object");
+			const loaded = parsed as Partial<Rules>;
+			for (const key of ["bashToolPatterns", "zeroAccessPaths", "readOnlyPaths", "noDeletePaths"] as const) {
+				if (!Array.isArray(loaded[key])) throw new Error(`${key} must be an array`);
+			}
+			if (!loaded.bashToolPatterns!.every((item) => typeof item === "object" && item !== null
+				&& typeof item.pattern === "string" && item.pattern.length > 0
+				&& typeof item.reason === "string" && item.reason.length > 0
+				&& (item.ask === undefined || typeof item.ask === "boolean"))) {
+				throw new Error("every bashToolPatterns entry must contain non-empty pattern and reason strings, with optional boolean ask");
+			}
+			for (const key of ["zeroAccessPaths", "readOnlyPaths", "noDeletePaths"] as const) {
+				if (!loaded[key]!.every((item) => typeof item === "string" && item.length > 0)) throw new Error(`${key} entries must be non-empty strings`);
+			}
+			if (loaded.abortOnBlock !== undefined && typeof loaded.abortOnBlock !== "boolean") throw new Error("abortOnBlock must be a boolean");
 			rules = {
-				bashToolPatterns: loaded.bashToolPatterns ?? [],
-				zeroAccessPaths: loaded.zeroAccessPaths ?? [],
-				readOnlyPaths: loaded.readOnlyPaths ?? [],
-				noDeletePaths: loaded.noDeletePaths ?? [],
+				bashToolPatterns: loaded.bashToolPatterns!,
+				zeroAccessPaths: loaded.zeroAccessPaths!,
+				readOnlyPaths: loaded.readOnlyPaths!,
+				noDeletePaths: loaded.noDeletePaths!,
 				// PI_DC_ABORT=1 forces abort regardless of the rules file. Set by
 				// pi-delegate.sh for research runs: a credential-path block during
 				// a web survey is anomalous and reads as prompt injection, so the
@@ -386,6 +428,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("tool_call", async (event, ctx) => {
+		if (!active) return { block: false };
 		if (loadError) {
 			// This branch used to write NOTHING. The session_start handler does say
 			// something, but its text is "BLOCKING ALL TOOL CALLS" -- which does not

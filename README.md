@@ -92,11 +92,12 @@ Full table of ~18 task shapes:
 The default `local` profile includes `bash`, so a delegate **can write**. Use
 `-p readonly` for the enforced version.
 
-The bundled guard blocks credential paths and destructive bash patterns, but it
-is **not active until you register it** in pi's settings — installing the plugin
-or copying the script does not turn it on. `/setup-pi-legwork` walks through it;
-by hand it is `extensions/damage-control.ts` plus `damage-control-rules.json` in
-`~/.pi/`.
+The bundled guard blocks credential paths and destructive bash patterns. Run
+`./install.sh` to expose it as the project-local
+`.pi/extensions/damage-control.ts`; do **not** register it under `~/.pi`.
+`pi-delegate` loads this trusted extension explicitly and binds it to this
+checkout through `PI_LEGWORK_PROJECT_ROOT`, so delegated work remains protected
+without making the guard ambient in unrelated Pi sessions.
 
 Once registered it still runs inside pi's own process — a policy hook, not a
 sandbox. Upstream pi has no permission system, and anything reaching the
@@ -108,6 +109,7 @@ is pinned by a table test with no runner dependency:
 
 ```bash
 node --experimental-strip-types extensions/damage-control.test.ts
+./install.sh --check
 ```
 
 ## Docs

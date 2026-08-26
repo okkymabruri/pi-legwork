@@ -39,7 +39,7 @@ if (!fs.existsSync(path.join(scope, "pi-coding-agent"))) {
 	console.log(`linked ${src} -> node_modules/@earendil-works/pi-coding-agent`);
 }
 
-const { bashReadOnlyViolation, commandMatchesGlob, commandReferencesReadOnly, redirectsToPath } = await import(
+const { bashReadOnlyViolation, commandMatchesGlob, commandReferencesReadOnly, findPiLegworkRoot, redirectsToPath } = await import(
 	"./damage-control.ts"
 );
 
@@ -154,6 +154,21 @@ for (const [got, expected, label] of UNIT) {
 	}
 }
 
-const total = CASES.length + UNIT.length;
+const tempOutside = fs.mkdtempSync(path.join(os.tmpdir(), "damage-control-scope-"));
+const SCOPE: [string | null, string | null, string][] = [
+	[findPiLegworkRoot(REPO), REPO, "guard activates at the pi-legwork root"],
+	[findPiLegworkRoot(path.join(REPO, "extensions")), REPO, "guard activates below the pi-legwork root"],
+	[findPiLegworkRoot(tempOutside), null, "guard is inactive in unrelated directories"],
+	[findPiLegworkRoot(tempOutside, REPO), REPO, "explicit wrapper loading protects an outside working directory"],
+	[findPiLegworkRoot(tempOutside, path.join(tempOutside, "missing")), null, "invalid explicit root is rejected"],
+];
+for (const [got, expected, label] of SCOPE) {
+	if (got !== expected) {
+		failed++;
+		console.error(`FAIL  ${label}: expected ${expected ?? "inactive"}, got ${got ?? "inactive"}`);
+	}
+}
+
+const total = CASES.length + UNIT.length + SCOPE.length;
 console.log(failed ? `${failed}/${total} FAILED` : `${total} cases pass`);
 process.exit(failed ? 1 : 0);

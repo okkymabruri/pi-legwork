@@ -15,3 +15,7 @@ benchmark/
 # an absolute autoMemoryDirectory that is true on one laptop only. Dropbox
 # still syncs both. Not .claude-plugin/, which is the published plugin manifest.
 .claude/
+
+# Project-local Pi discovery link is created by install.sh. Keep the canonical
+# extension under extensions/ and do not publish a machine-specific symlink.
+.pi/

@@ -33,6 +33,8 @@
 #   PI_DELEGATE_THINKING  reasoning effort passed to pi: off|minimal|low|medium|
 #                       high|xhigh|max. UNSET by default, and deliberately so --
 #                       see the note above THINK_ARG before you turn it on.
+#   PI_DELEGATE_PROJECT_ROOT  trusted pi-legwork checkout whose project-local
+#                       Damage-Control extension must load (defaults to this script's repo).
 
 set -uo pipefail
 
@@ -76,6 +78,8 @@ NO_CONTEXT=0
 # Skills are OPT-IN. See SKILLS_ARG below for why they are not on by default.
 WANT_SKILLS=0
 SKILLS_DIR="${PI_DELEGATE_SKILLS_DIR:-$HOME/.pi/agent/skills}"
+SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="${PI_DELEGATE_PROJECT_ROOT:-$SCRIPT_ROOT}"
 
 # Sessions are OFF by default, which is what the one-shot semantics already
 # implied -- but pi was saving one per cwd regardless, and ~/.pi/agent/sessions
@@ -200,12 +204,11 @@ doctor() {
     say "" "     A stronger model here is worth it: weak agreement is worse than none."
   fi
 
-  # The guard is optional, so a missing one is a note, not a failure -- but the
-  # note has to say plainly what is not being protected.
-  if [ -f "$HOME/.pi/damage-control-rules.json" ]; then
-    say "ok" "guard rules at ~/.pi/damage-control-rules.json"
+  if [ -f "$PROJECT_ROOT/.pi/extensions/damage-control.ts" ] && [ -f "$PROJECT_ROOT/damage-control-rules.json" ]; then
+    say "ok" "project-local guard at $PROJECT_ROOT"
   else
-    say "note" "no guard rules -- credential paths are NOT blocked. See README: Install"
+    say "FAIL" "project-local guard missing under $PROJECT_ROOT -- run ./install.sh from pi-legwork"
+    rc=1
   fi
 
   echo
@@ -454,12 +457,21 @@ THINK_ARG=()
 # signal and the turn should stop rather than be told "continue with the rest".
 [ "$PROFILE" = "research" ] && export PI_DC_ABORT=1
 
+# Damage-Control is deliberately project-local. The wrapper loads that one
+# trusted extension explicitly, so it remains active when delegation starts
+# from another project without becoming an ambient global extension.
+[ -f "$PROJECT_ROOT/.pi/extensions/damage-control.ts" ] || {
+  echo "project-local Damage-Control extension missing: $PROJECT_ROOT/.pi/extensions/damage-control.ts" >&2
+  echo "run $PROJECT_ROOT/install.sh, then retry" >&2
+  exit 1
+}
+
 # `${arr[@]+"${arr[@]}"}`, not `"${arr[@]}"`. Under `set -u`, macOS bash 3.2
 # treats an EMPTY array expansion as an unbound variable and aborts. That is
 # not hypothetical: `-p full` sets TOOLS_ARG=() by design, so the full profile
 # has never been able to run. Adding CONTEXT_ARG=() made it fire on every call
 # that did not pass -nc.
-PI_OFFLINE="$PI_OFFLINE" pi --mode json -p "$CONTRACT" --model "$MODEL" \
+PI_LEGWORK_PROJECT_ROOT="$PROJECT_ROOT" PI_OFFLINE="$PI_OFFLINE" pi --no-extensions --extension "$PROJECT_ROOT/.pi/extensions/damage-control.ts" --mode json -p "$CONTRACT" --model "$MODEL" \
   ${TOOLS_ARG[@]+"${TOOLS_ARG[@]}"} \
   ${SESSION_ARG[@]+"${SESSION_ARG[@]}"} \
   ${CONTEXT_ARG[@]+"${CONTEXT_ARG[@]}"} \
