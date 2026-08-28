@@ -17,11 +17,17 @@ bad() { printf '  FAIL %s\n' "$*"; fail=$((fail + 1)); }
 if [ "$MODE" = "--uninstall" ]; then
   if [ -L "$BIN_DIR/pi-delegate" ]; then
     target="$(readlink "$BIN_DIR/pi-delegate")"
-    case "$target" in "$HERE/pi-delegate.sh"|*/workflow-orchestration/code-assistant/pi/pi-delegate.sh) unlink "$BIN_DIR/pi-delegate" ;; esac
+    case "$target" in "$HERE/pi-delegate.sh"|*/workflow-orchestration/code-assistant/pi/pi-delegate.sh|*/pi-harness/bin/pi-delegate) unlink "$BIN_DIR/pi-delegate" ;; esac
   fi
-  [ ! -L "$LOCAL_EXT" ] || unlink "$LOCAL_EXT"
-  [ ! -L "$GLOBAL_EXT" ] || unlink "$GLOBAL_EXT"
-  [ ! -L "$GLOBAL_RULES" ] || unlink "$GLOBAL_RULES"
+  [ ! -L "$LOCAL_EXT" ] || [ "$(readlink "$LOCAL_EXT")" != "$HERE/extensions/damage-control.ts" ] || unlink "$LOCAL_EXT"
+  if [ -L "$GLOBAL_EXT" ]; then
+    target="$(readlink "$GLOBAL_EXT")"
+    case "$target" in "$HERE/extensions/damage-control.ts"|*/workflow-orchestration/code-assistant/pi/extensions/damage-control.ts) unlink "$GLOBAL_EXT";; esac
+  fi
+  if [ -L "$GLOBAL_RULES" ]; then
+    target="$(readlink "$GLOBAL_RULES")"
+    case "$target" in "$HERE/damage-control-rules.json"|*/workflow-orchestration/code-assistant/pi/damage-control-rules.json) unlink "$GLOBAL_RULES";; esac
+  fi
   echo "Removed pi-legwork links; user config and credentials were not touched."
   exit 0
 fi
@@ -34,8 +40,14 @@ if [ "$MODE" = "install" ]; then
   ln -sfn "$HERE/extensions/damage-control.ts" "$LOCAL_EXT"
   # Legacy ambient links are dangerous outside this project. Remove only when
   # they point into this checkout; never delete a user's unrelated file.
-  [ ! -L "$GLOBAL_EXT" ] || [ "$(readlink "$GLOBAL_EXT")" != "$HERE/extensions/damage-control.ts" ] || unlink "$GLOBAL_EXT"
-  [ ! -L "$GLOBAL_RULES" ] || [ "$(readlink "$GLOBAL_RULES")" != "$HERE/damage-control-rules.json" ] || unlink "$GLOBAL_RULES"
+  if [ -L "$GLOBAL_EXT" ]; then
+    target="$(readlink "$GLOBAL_EXT")"
+    case "$target" in "$HERE/extensions/damage-control.ts"|*/workflow-orchestration/code-assistant/pi/extensions/damage-control.ts) unlink "$GLOBAL_EXT";; esac
+  fi
+  if [ -L "$GLOBAL_RULES" ]; then
+    target="$(readlink "$GLOBAL_RULES")"
+    case "$target" in "$HERE/damage-control-rules.json"|*/workflow-orchestration/code-assistant/pi/damage-control-rules.json) unlink "$GLOBAL_RULES";; esac
+  fi
 fi
 
 [ -x "$HERE/pi-delegate.sh" ] && ok "launcher executable" || bad "launcher not executable"
