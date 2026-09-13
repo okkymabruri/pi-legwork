@@ -57,8 +57,10 @@ covered above.**
 
 ## Writing the prompt
 
-The delegate sees the prompt and the working directory's `AGENTS.md`/`CLAUDE.md`.
-It never sees this conversation, so the prompt carries everything.
+The delegate sees the prompt and the working directory's `AGENTS.md`. Legacy
+`CLAUDE.md` loading is retained only as compatibility behavior, not as an active
+Claude Code setup route. It never sees this conversation, so the prompt carries
+everything.
 
 - Name exact paths.
 - **Cap the output shape**: "one line per file", "a markdown table", "just the
@@ -119,7 +121,7 @@ a question about both sides.
 | `-o PATH` | durable output path (use whenever fanning out) |
 | `-p readonly` | no bash: cannot mutate anything |
 | `-p research` | web tools, no bash/write |
-| `-nc` | skip the cwd's `AGENTS.md`/`CLAUDE.md` |
+| `-nc` | skip cwd instruction files, including legacy `CLAUDE.md` compatibility |
 | `-S` | announce the skills in `~/.pi/agent/skills` (opt-in; see below) |
 | `-s ID` | resumable session for follow-ups |
 | `-f FILE` | long task text from a file |

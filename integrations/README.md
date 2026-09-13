@@ -8,8 +8,9 @@ one instruction file per host, not an abstraction layer.
 
 | Host | File | Status |
 |---|---|---|
-| Claude Code | [`../skills/pi-delegate/SKILL.md`](../skills/pi-delegate/SKILL.md) | **Works, and saved caller tokens on grep-heavy work** — measure your own with `benchmark/` |
+| Pi | [`../skills/pi-delegate/SKILL.md`](../skills/pi-delegate/SKILL.md) | Active repo-local guidance; no automatic install or loading claim |
 | Codex CLI | [`codex/AGENTS.md`](codex/AGENTS.md) | **Fires correctly; no measured saving** — see below |
+| Claude Code | archived plugin/setup material | **Retired; do not use as an active setup route** |
 | Anything else | see below | Untested |
 
 ### What the Codex tests showed
@@ -74,5 +75,7 @@ If your caller is already cheap, you get context isolation and lower variance,
 and you pay latency and duplicated inference for it. That trade may still be
 worth it — but measure it rather than inheriting a number from a different setup.
 
-Only Claude Code has been benchmarked. Treat every other row in the table above
-as plausible and unverified.
+The Claude Code measurements above are frozen historical evidence, not an active
+integration claim. Codex behavior was tested as described, but no saving was
+measured. Current Pi guidance has not been benchmarked here; measure it rather
+than inheriting another host's result.

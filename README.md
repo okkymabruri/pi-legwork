@@ -1,6 +1,6 @@
-<img src="docs/banner.svg" alt="pi-legwork — Claude Code or Codex delegates research to a cheaper pi agent; the reads stay there, only a short answer returns" width="600">
+<img src="docs/banner.svg" alt="pi-legwork delegates research to a cheaper pi agent; the reads stay there, only a short answer returns" width="600">
 
-Use **Claude Code** or **Codex** to delegate research — surveys, grep sweeps,
+Use **Pi** or **Codex** to delegate research — surveys, grep sweeps,
 git archaeology, log scans, web lookups — to a cheaper
 **[pi](https://github.com/badlogic/pi-mono) agent**.
 
@@ -9,8 +9,8 @@ pi-delegate "which files under src/ reference the retry helper, and what for"
 ```
 
 Answering that takes about forty file reads to produce ten rows. The pi agent
-does all forty in its own session and writes the full answer to a file. Claude
-Code gets a short preview and the path — none of the reads enter its context.
+does all forty in its own session and writes the full answer to a file. The
+caller gets a short preview and the path; none of the reads enter its context.
 
 The saving depends on your task, your models, your quota, and how much context
 your caller already carries on every turn. No headline number ships here, and
@@ -44,13 +44,12 @@ pi-delegate --doctor                       # checks the install, says what is mi
 
 There is no default model. See [docs/PROVIDERS.md](docs/PROVIDERS.md).
 
-**Claude Code** — install the plugin, which adds the skill and a setup command:
+**Claude Code retired:** the former plugin and `/setup-pi-legwork` command are
+archived and are not supported setup paths. Do not run old setup examples.
 
-```
-/plugin marketplace add okkymabruri/pi-legwork
-/plugin install pi-legwork@pi-legwork
-/setup-pi-legwork
-```
+**Pi** — use the repo-local [`skills/pi-delegate/SKILL.md`](skills/pi-delegate/SKILL.md)
+as guidance. Installing the shell command above does not automatically load the
+skill into Pi.
 
 **Codex** — paste the block from
 [`integrations/codex/AGENTS.md`](integrations/codex/AGENTS.md) into your
@@ -119,7 +118,7 @@ node --experimental-strip-types extensions/damage-control.test.ts
 | [PHILOSOPHY.md](PHILOSOPHY.md) | Why context is the scarce resource, the gates, the measurement, honest limits |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Diagrams: what crosses the context boundary, profiles, the guard |
 | [docs/PROVIDERS.md](docs/PROVIDERS.md) | Configuring a delegate model |
-| [integrations/](integrations/README.md) | Per-host setup; only Claude Code is measured |
+| [integrations/](integrations/README.md) | Active Pi/Codex guidance and frozen historical measurements |
 
 ## License
 
