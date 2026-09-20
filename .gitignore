@@ -19,3 +19,4 @@ benchmark/
 # Project-local Pi discovery link is created by install.sh. Keep the canonical
 # extension under extensions/ and do not publish a machine-specific symlink.
 .pi/
+/archive/claude-code-retired-2026-09/
