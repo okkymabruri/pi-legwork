@@ -4,7 +4,7 @@ This repository owns the `pi-delegate` CLI, host integration snippets, and the
 project-local Damage-Control extension. It is a case study and reference
 implementation, not the installed Pi harness. Harness routing and runtime
 maintenance belong in `../pi-harness/`; reviewed shared skills belong in
-`../workflow-orchestration/`.
+`../skills/`.
 
 ## Change paths
 
